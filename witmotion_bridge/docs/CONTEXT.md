@@ -1,108 +1,109 @@
-# Contexto: Puente WitMotion WT901WIFI → Blender
+# Context: WitMotion WT901WIFI → Blender bridge
 
-## Objetivo
-Recibir la orientación de uno o varios sensores WitMotion WT901WIFI por
-WiFi y aplicarla en tiempo real a objetos de Blender. Es el paso hacia un
-traje de captura de movimiento multi-sensor.
+## Goal
+Receive orientation from one or more WitMotion WT901WIFI sensors over WiFi
+and apply it in real time to Blender objects. It is the step toward a
+multi-sensor motion capture suit.
 
-## Relación con `blender_bridge/`
-Este proyecto es hermano de `blender_bridge/` (el puente Arduino+MPU por
-USB serial). Comparte convenciones (config.env sin dependencias, patrón
-`bpy.app.timers` no bloqueante, utilidades de recentrado), pero cambia el
-transporte y el reparto de trabajo:
+## Relationship with `blender_bridge/`
+This project is a sibling of `blender_bridge/` (the Arduino+MPU bridge over
+USB serial). It shares conventions (dependency-free config.env, non-blocking
+`bpy.app.timers` pattern, recentering utilities), but changes the transport
+and the division of work:
 
 | | blender_bridge (MPU serial) | witmotion_bridge (WT901WIFI) |
 |---|---|---|
-| Fusión de sensores | La hace el script (filtro complementario) | Interna del sensor (Kalman) |
-| Transporte | USB serial (`pyserial`) | WiFi, socket UDP (stdlib) |
-| Datos recibidos | Raw accel+gyro | Ángulos ya fusionados + DeviceID |
-| Multi-sensor | Complicado | Nativo (un socket, varios DeviceID) |
-| Poner a cero | `recenter_yaw()` (solo yaw) | `calibrate()` (pose completa, cuaternión) |
+| Sensor fusion | Done by the script (complementary filter) | Internal to the sensor (Kalman) |
+| Transport | USB serial (`pyserial`) | WiFi, UDP socket (stdlib) |
+| Data received | Raw accel+gyro | Already-fused angles + DeviceID |
+| Multi-sensor | Awkward | Native (one socket, several DeviceIDs) |
+| Zeroing | `recenter_yaw()` (yaw only) | `calibrate()` (full pose, quaternion) |
 
-## El sensor: WT901WIFI
-- Construido sobre un MPU9250 (accel+gyro+magnetómetro) con un MCU propio
-  que corre el filtro de Kalman de WitMotion; entrega actitud de bajo drift.
-- Transmite por WiFi 2.4 GHz, hasta 200 Hz, vía UDP o TCP (se elige UNO).
-- Soporta múltiples dispositivos en la misma red -> ideal para el traje.
-- Batería interna (~3 h de autonomía según tasa de datos).
+## The sensor: WT901WIFI
+- Built on an MPU9250 (accel+gyro+magnetometer) with its own MCU running
+  WitMotion's Kalman filter; delivers low-drift attitude.
+- Transmits over 2.4 GHz WiFi, up to 200 Hz, via UDP or TCP (pick ONE).
+- Supports multiple devices on the same network -> ideal for the suit.
+- Internal battery (~3 h of runtime depending on data rate).
 
-## Decisiones de arquitectura tomadas
-1. **UDP, no TCP.** Menor latencia; si se pierde un paquete se descarta y
-   se usa el siguiente, en vez de retransmitir una pose ya obsoleta. Para
-   streaming de captura de movimiento es lo habitual. (No hay cadena
-   "UDP y luego TCP": es un único transporte; lo de "configura primero en
-   UDP" del manual es solo para no perder la conexión al pasar AP→Station.)
-2. **La fusión ya viene hecha por el sensor.** Aquí no se filtra: se parsea,
-   se calibra y se aplica. El script es sustancialmente más simple que el
-   del MPU.
-3. **Calibración por POSE de referencia, en software, con cuaterniones.**
-   Al arrancar (o al llamar a `calibrate()`) se captura la orientación de
-   cada sensor como "cero" y se aplica su inverso a las lecturas. Ventajas
-   frente al "Z-axis zero return" del sensor:
-   - Calibra los tres ejes, no solo el yaw.
-   - Uniforme para todos los sensores del traje.
-   - No obliga a pasar a modo 6 ejes (que reintroduce deriva de yaw); se
-     conserva el yaw absoluto de 9 ejes.
-   - Cuaterniones -> sin gimbal lock; el "cero" es una multiplicación.
-4. **Mapeo sensor→objeto por DeviceID** (config.env `DEVICE_MAP`), con
-   comodín `*` para el caso de un solo sensor de prueba.
+## Architecture decisions made
+1. **UDP, not TCP.** Lower latency; if a packet is lost it is dropped and
+   the next one is used, instead of retransmitting an already-stale pose.
+   For motion capture streaming this is standard. (There is no "UDP and then
+   TCP" chain: it's a single transport; the manual's "configure in UDP
+   first" is only to avoid losing the connection on the AP→Station switch.)
+2. **Fusion is already done by the sensor.** No filtering here: we parse,
+   calibrate and apply. The script is substantially simpler than the MPU's.
+3. **Reference-POSE calibration, in software, with quaternions.** At startup
+   (or when calling `calibrate()`) each sensor's orientation is captured as
+   "zero" and its inverse is applied to the readings. Advantages over the
+   sensor's "Z-axis zero return":
+   - Calibrates all three axes, not just yaw.
+   - Uniform for all sensors in the suit.
+   - Does not force 6-axis mode (which reintroduces yaw drift); the absolute
+     9-axis yaw is preserved.
+   - Quaternions -> no gimbal lock; "zero" is a multiplication.
+4. **Sensor→object mapping by DeviceID** (config.env `DEVICE_MAP`), with a
+   `*` wildcard for the single-test-sensor case.
 
-## Archivos
-- `blender/blender_udp_bridge.py` — Receptor UDP para ejecutar dentro de
-  Blender. Parsea por DeviceID, calibra contra pose de referencia y mueve
-  los objetos vía `rotation_quaternion`.
-- `blender/config.env` — Toda la configuración (puerto, mapeo de sensores,
-  calibración, signos de eje, índices de campo del CSV).
-- `tools/read_udp.py` — Lector UDP de diagnóstico (fuera de Blender), para
-  validar el formato real de las tramas antes de tocar Blender.
-- `tools/fake_sensor.py` — Emisor UDP falso que imita al WT901WIFI (layout
-  por defecto, ángulos animados). Permite probar parseo/calibración y el
-  flujo completo en Blender SIN el sensor en red, y sirve de referencia
-  contra la que contrastar el sensor real cuando se conecte.
+## Files
+- `blender/blender_udp_bridge.py` — UDP receiver to run inside Blender.
+  Parses by DeviceID, calibrates against a reference pose and moves the
+  objects via `rotation_quaternion`.
+- `blender/config.env` — All configuration (port, sensor mapping,
+  calibration, axis signs, CSV field indices).
+- `tools/read_udp.py` — UDP diagnostic reader (outside Blender), to validate
+  the real frame format before touching Blender.
+- `tools/fake_sensor.py` — Fake UDP emitter mimicking the WT901WIFI (default
+  layout, animated angles). Lets you test parsing/calibration and the whole
+  flow in Blender WITHOUT the sensor on the network, and serves as a
+  reference to compare the real sensor against once it connects.
 
-## Puesta a punto del sensor (una vez)
-1. Con la app/PC de WitMotion, configura el WT901WIFI en **Station mode**
-   para que se una a tu router. Recomendación del manual: al migrar desde
-   AP mode, cambia primero a **UDP** (no directo a TCP), o puedes perder la
-   conexión y tener que resetear (botón 2 s) o reconfigurar por serie.
-2. Fija el **user server IP** = IP de tu Mac en la LAN, y el **port** =
-   el mismo `LISTEN_PORT` de config.env (por defecto 1399).
-3. Asegúrate de que Mac y sensor están en la MISMA red WiFi.
+## Sensor setup (one-off)
+1. With the WitMotion app/PC tool, configure the WT901WIFI in **Station
+   mode** so it joins your router. Manual recommendation: when migrating
+   from AP mode, switch to **UDP** first (not straight to TCP), or you may
+   lose the connection and have to reset (2 s button) or reconfigure over
+   serial.
+2. Set the **user server IP** = your Mac's IP on the LAN, and the **port** =
+   the same `LISTEN_PORT` from config.env (1399 by default).
+3. Make sure the Mac and the sensor are on the SAME WiFi network.
 
-## Cómo probar (orden recomendado)
-1. **Validar tramas SIN Blender:**
+## How to test (recommended order)
+1. **Validate frames WITHOUT Blender:**
        python3 tools/read_udp.py 1399 10
-   Comprobar que llegan líneas, que empiezan por el DeviceID y cuántos
-   campos tienen. Si el orden de los ángulos no es 7,8,9, ajustar los
-   `IDX_ANGLE_*` en config.env.
-2. **Instalar nada** (el bridge usa solo stdlib + mathutils de Blender).
-3. **En Blender:** ajustar `DEVICE_MAP`/`DEFAULT_OBJECT` al objeto de la
-   escena, abrir `blender/blender_udp_bridge.py` en Scripting y Run Script.
-   Con `AUTO_CALIBRATE=1`, colocar el sensor en la pose de referencia
-   durante el countdown inicial.
-4. Mover el sensor y verificar que el objeto gira en el eje/sentido
-   correctos. Si algún eje va invertido o cruzado, ajustar `SIGN_*` (o el
-   orden de Euler en `_angles_to_quat`).
+   Check that lines arrive, that they start with the DeviceID and how many
+   fields they have. If the angle order is not 7,8,9, adjust the
+   `IDX_ANGLE_*` in config.env.
+2. **Install nothing** (the bridge uses only stdlib + Blender's mathutils).
+3. **In Blender:** set `DEVICE_MAP`/`DEFAULT_OBJECT` to the scene object,
+   open `blender/blender_udp_bridge.py` in Scripting and Run Script. With
+   `AUTO_CALIBRATE=1`, place the sensor in the reference pose during the
+   initial countdown.
+4. Move the sensor and verify the object rotates on the correct axis and
+   direction. If some axis is inverted or crossed, adjust `SIGN_*` (or the
+   Euler order in `_angles_to_quat`).
 
-## Pendiente / próximos pasos
-> Guía operativa paso a paso para el hardware: `SETUP_HARDWARE.md`.
-> Software validado de punta a punta (fake_sensor → read_udp) el 2026-07-20;
-> lo pendiente es todo con el sensor real y en Blender.
-- [ ] **Verificar el formato real del CSV** con `read_udp.py` y confirmar
-      los índices de campo (el layout puede variar con el firmware).
-- [ ] **Calibrar el mapeo de ejes** sensor→Blender con el sensor montado
-      como irá en el traje (marco del sensor vs Z-up de Blender).
-- [ ] **Salto a multi-sensor:** listar los DeviceIDs reales (`list_devices()`)
-      y rellenar `DEVICE_MAP` con la asignación a huesos/objetos. El
-      receptor ya soporta varios sensores sin cambios.
-- [ ] **Mapear a un armature:** en vez de objetos sueltos, aplicar cada
-      cuaternión al `pose.bones[...]` correspondiente, resolviendo la
-      jerarquía (orientación de hueso relativa al padre).
-- [ ] Evaluar usar el **cuaternión nativo** del sensor si el firmware lo
-      incluye en la trama (evita la conversión Euler→quat y su orden).
-- [ ] Revisar rendimiento con varios sensores a 100–200 Hz (el tope de
-      200 datagramas/tick del `_pump` es ajustable).
+## Pending / next steps
+> Step-by-step operational guide for the hardware: `SETUP_HARDWARE.md`.
+> Software validated end-to-end (fake_sensor → read_udp) on 2026-07-20;
+> what remains is everything with the real sensor and in Blender.
+- [ ] **Verify the real CSV format** with `read_udp.py` and confirm the
+      field indices (the layout may vary with the firmware).
+- [ ] **Calibrate the axis mapping** sensor→Blender with the sensor mounted
+      as it will sit on the suit (sensor frame vs Blender's Z-up).
+- [ ] **Multi-sensor jump:** list the real DeviceIDs (`list_devices()`) and
+      fill `DEVICE_MAP` with the assignment to bones/objects. The receiver
+      already supports several sensors unchanged.
+- [ ] **Map to an armature:** instead of loose objects, apply each
+      quaternion to the corresponding `pose.bones[...]`, resolving the
+      hierarchy (bone orientation relative to the parent).
+- [ ] Evaluate using the sensor's **native quaternion** if the firmware
+      includes it in the frame (avoids the Euler→quat conversion and its
+      order).
+- [ ] Review performance with several sensors at 100–200 Hz (the 200
+      datagrams/tick cap in `_pump` is adjustable).
 
-## Notas para Claude Code
-Ver `../CLAUDE.md` en la raíz del proyecto para la lista de tareas y el
-orden sugerido de trabajo con el hardware conectado.
+## Notes for Claude Code
+See `../CLAUDE.md` at the project root for the task list and the suggested
+order of work with the hardware connected.

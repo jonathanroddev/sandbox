@@ -1,51 +1,50 @@
 """
 blender_udp_bridge.py
 ----------------------
-Ejecutar DENTRO de Blender (pestaña Scripting -> Text Editor -> Run Script).
+Run INSIDE Blender (Scripting tab -> Text Editor -> Run Script).
 
-Recibe por UDP las tramas del/los sensor(es) WitMotion WT901WIFI y aplica
-su orientación a objetos de la escena. A diferencia del bridge serial del
-MPU (que recibía datos crudos y hacía la fusión aquí), el WT901WIFI ya
-entrega ángulos fusionados por su propio filtro de Kalman: aquí solo se
-parsean, se calibran contra una pose de referencia y se aplican.
+Receives frames from the WitMotion WT901WIFI sensor(s) over UDP and applies
+their orientation to scene objects. Unlike the MPU serial bridge (which
+received raw data and did the fusion here), the WT901WIFI already delivers
+angles fused by its own Kalman filter: here we only parse them, calibrate
+against a reference pose, and apply them.
 
-FLUJO:
-    sensor --(WiFi, UDP)--> socket en esta máquina --> parser por DeviceID
-        --> offset de calibración --> objeto de Blender (rotation_quaternion)
+FLOW:
+    sensor --(WiFi, UDP)--> socket on this machine --> parser by DeviceID
+        --> calibration offset --> Blender object (rotation_quaternion)
 
-CLAVES DE DISEÑO:
-  - Un ÚNICO transporte (UDP). No hay "UDP y luego TCP": se elige uno.
-    UDP encaja mejor en captura de movimiento (menos latencia; un paquete
-    perdido se descarta y se usa el siguiente, sin retransmitir poses viejas).
-  - MULTI-SENSOR nativo: cada trama trae su DeviceID; DEVICE_MAP decide qué
-    objeto mueve cada sensor. Un solo socket sirve a todos los sensores.
-  - CALIBRACIÓN POR POSE (no por sensor): al arrancar se captura la
-    orientación de cada sensor como "cero" y se aplica su inverso a cada
-    lectura. Se hace con cuaterniones (mathutils) -> sin gimbal lock, y
-    calibra los tres ejes a la vez, no solo el yaw. No dependemos del
-    "Z-axis zero return" del sensor (que obliga a modo 6 ejes y reintroduce
-    deriva de yaw); mantenemos el yaw absoluto de 9 ejes y lo "ponemos a
-    cero" en software.
+DESIGN KEYS:
+  - A SINGLE transport (UDP). There is no "UDP and then TCP": one is chosen.
+    UDP fits motion capture better (less latency; a lost packet is dropped
+    and the next one is used, without retransmitting stale poses).
+  - NATIVE MULTI-SENSOR: each frame carries its DeviceID; DEVICE_MAP decides
+    which object each sensor moves. A single socket serves all sensors.
+  - POSE CALIBRATION (not per-sensor): at startup each sensor's orientation
+    is captured as "zero" and its inverse is applied to every reading. Done
+    with quaternions (mathutils) -> no gimbal lock, and it calibrates all
+    three axes at once, not just yaw. We don't rely on the sensor's "Z-axis
+    zero return" (which forces 6-axis mode and reintroduces yaw drift); we
+    keep the absolute 9-axis yaw and "zero" it in software.
 
-REQUISITOS:
-  No hace falta pyserial. El socket UDP usa solo la librería estándar, y
-  mathutils viene incluido en Blender. Nada que instalar.
+REQUIREMENTS:
+  No pyserial needed. The UDP socket uses only the standard library, and
+  mathutils ships with Blender. Nothing to install.
 
-USO RÁPIDO (en la consola Python de Blender, tras Run Script):
-    start_bridge()      # abre el socket UDP y empieza a escuchar
-    calibrate()         # captura la pose de referencia AHORA (pon la T-pose)
-    recenter(device)    # recalibra un sensor concreto por su DeviceID
-    list_devices()      # muestra los DeviceIDs vistos y su objeto asignado
-    stop_bridge()       # detiene y cierra el socket
+QUICK USAGE (in Blender's Python console, after Run Script):
+    start_bridge()      # open the UDP socket and start listening
+    calibrate()         # capture the reference pose NOW (strike the T-pose)
+    recenter(device)    # recalibrate a specific sensor by its DeviceID
+    list_devices()      # show the DeviceIDs seen and their assigned object
+    stop_bridge()       # stop and close the socket
 
-NOTA SOBRE EL MAPEO DE EJES:
-  El sensor entrega los ángulos en su propio marco de referencia (y usa
-  orden de Euler Z-Y-X). Blender es Z-up. El marco puede no coincidir con
-  el objeto según cómo montes físicamente el sensor. Empezamos con un mapeo
-  directo + signos configurables (SIGN_*), pero es lo primero a verificar
-  con el sensor en la mano: mueve el sensor en un eje y comprueba que el
-  objeto gira en el eje y sentido correctos; ajusta SIGN_* o el orden en
-  _angles_to_quat() si hiciera falta.
+NOTE ON AXIS MAPPING:
+  The sensor delivers angles in its own reference frame (and uses Z-Y-X
+  Euler order). Blender is Z-up. The frame may not match the object
+  depending on how you physically mount the sensor. We start with a direct
+  mapping + configurable signs (SIGN_*), but this is the first thing to
+  verify with the sensor in hand: move the sensor on one axis and check the
+  object rotates on the correct axis and direction; adjust SIGN_* or the
+  order in _angles_to_quat() if needed.
 """
 
 import bpy
@@ -54,9 +53,9 @@ import time
 import os
 from mathutils import Euler, Quaternion
 
-# ---------- CARGA DE CONFIGURACIÓN (config.env) ----------
-# Mismo patrón que blender_serial_bridge.py: todo lo que cambia entre
-# PCs/redes/escenas vive en config.env, no aquí.
+# ---------- CONFIGURATION LOADING (config.env) ----------
+# Same pattern as blender_serial_bridge.py: everything that changes between
+# PCs/networks/scenes lives in config.env, not here.
 
 _DEFAULTS = {
     "LISTEN_HOST": "0.0.0.0",
@@ -85,7 +84,7 @@ def _find_config_path():
         here = os.path.dirname(os.path.abspath(__file__))
         candidates.append(os.path.join(here, "config.env"))
     except NameError:
-        pass  # __file__ no definido (texto sin guardar en el editor de Blender)
+        pass  # __file__ not defined (unsaved text in Blender's editor)
     candidates.append(os.path.join(os.getcwd(), "config.env"))
     for path in candidates:
         if os.path.isfile(path):
@@ -97,7 +96,7 @@ def _load_config():
     cfg = dict(_DEFAULTS)
     path = _find_config_path()
     if path is None:
-        print("[wifi-bridge] AVISO: no se encontró config.env; usando valores por defecto.")
+        print("[wifi-bridge] WARNING: config.env not found; using default values.")
         return cfg
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -107,15 +106,15 @@ def _load_config():
                     continue
                 key, _, value = line.partition("=")
                 cfg[key.strip()] = value.strip()
-        print(f"[wifi-bridge] Config cargada de: {path}")
+        print(f"[wifi-bridge] Config loaded from: {path}")
     except Exception as e:
-        print(f"[wifi-bridge] AVISO: error leyendo {path}: {e}. Usando valores por defecto.")
+        print(f"[wifi-bridge] WARNING: error reading {path}: {e}. Using defaults.")
     return cfg
 
 
 def _parse_device_map(raw, default_object):
-    """DEVICE_MAP 'A:Obj1,B:Obj2,*:Cube' -> dict {DeviceID: objeto}.
-    La clave '*' es el comodín para sensores no listados."""
+    """DEVICE_MAP 'A:Obj1,B:Obj2,*:Cube' -> dict {DeviceID: object}.
+    The '*' key is the wildcard for sensors not listed."""
     mapping = {}
     for pair in raw.split(","):
         pair = pair.strip()
@@ -130,7 +129,7 @@ def _parse_device_map(raw, default_object):
 
 _cfg = _load_config()
 
-# ---------- CONFIGURACIÓN EFECTIVA ----------
+# ---------- EFFECTIVE CONFIGURATION ----------
 LISTEN_HOST = _cfg["LISTEN_HOST"]
 LISTEN_PORT = int(_cfg["LISTEN_PORT"])
 DEFAULT_OBJECT = _cfg["DEFAULT_OBJECT"]
@@ -146,30 +145,30 @@ IDX_ANGLE_Y = int(_cfg["IDX_ANGLE_Y"])
 IDX_ANGLE_Z = int(_cfg["IDX_ANGLE_Z"])
 MIN_FIELDS = int(_cfg["MIN_FIELDS"])
 
-# ---------- ESTADO GLOBAL ----------
+# ---------- GLOBAL STATE ----------
 _sock = None
-_offsets = {}          # DeviceID -> Quaternion de referencia inversa (cero)
-_last_quat = {}        # DeviceID -> último cuaternión medido (para calibrar bajo demanda)
-_seen_devices = set()  # DeviceIDs vistos en esta sesión
-_calib_deadline = None  # instante hasta el que se pospone la autocalibración
+_offsets = {}          # DeviceID -> inverse reference Quaternion (zero)
+_last_quat = {}        # DeviceID -> last measured quaternion (for on-demand calibration)
+_seen_devices = set()  # DeviceIDs seen in this session
+_calib_deadline = None  # time until which auto-calibration is deferred
 
 
 def _object_for_device(device_id):
-    """Resuelve el objeto de Blender asignado a un DeviceID (o el comodín)."""
+    """Resolve the Blender object assigned to a DeviceID (or the wildcard)."""
     name = DEVICE_MAP.get(device_id, DEVICE_MAP.get("*", DEFAULT_OBJECT))
     return bpy.data.objects.get(name)
 
 
 def _angles_to_quat(ax_deg, ay_deg, az_deg):
-    """Convierte los ángulos (grados) del sensor a un cuaternión.
+    """Convert the sensor's angles (degrees) to a quaternion.
 
-    WitMotion define la actitud con orden de Euler Z-Y-X (primero Z, luego
-    Y, luego X). En mathutils, Euler((rx,ry,rz), 'XYZ') aplica X,Y,Z; para
-    replicar Z-Y-X usamos el orden 'ZYX' con los ángulos en radianes.
-    Los signos SIGN_* permiten invertir un eje según el montaje físico.
+    WitMotion defines attitude with Z-Y-X Euler order (Z first, then Y,
+    then X). In mathutils, Euler((rx,ry,rz), 'XYZ') applies X,Y,Z; to
+    replicate Z-Y-X we use the 'ZYX' order with the angles in radians.
+    The SIGN_* signs allow inverting an axis per the physical mounting.
 
-    Si al probar en real algún giro sale invertido o cruzado, este es el
-    punto a ajustar (orden de Euler y/o SIGN_*).
+    If some rotation comes out inverted or crossed when testing for real,
+    this is the point to adjust (Euler order and/or SIGN_*).
     """
     from math import radians
     e = Euler(
@@ -184,12 +183,12 @@ def _angles_to_quat(ax_deg, ay_deg, az_deg):
 
 
 def _parse_datagram(data):
-    """Parsea un datagrama UDP a (device_id, quat) o None si no es válido.
+    """Parse a UDP datagram into (device_id, quat) or None if invalid.
 
-    El WT901WIFI emite CSV ASCII terminado en \\r\\n. Un datagrama puede
-    contener una o varias líneas; procesamos la última línea completa.
-    Los índices de campo son configurables (IDX_*) porque el layout exacto
-    puede variar con el firmware.
+    The WT901WIFI emits ASCII CSV terminated by \\r\\n. A datagram may
+    contain one or several lines; we process the last complete line. The
+    field indices are configurable (IDX_*) because the exact layout may
+    vary with the firmware.
     """
     try:
         text = data.decode("utf-8", errors="ignore").strip()
@@ -197,7 +196,7 @@ def _parse_datagram(data):
         return None
     if not text:
         return None
-    line = text.splitlines()[-1].strip()  # última línea completa del datagrama
+    line = text.splitlines()[-1].strip()  # last complete line of the datagram
     parts = line.split(",")
     if len(parts) < MIN_FIELDS:
         return None
@@ -212,13 +211,13 @@ def _parse_datagram(data):
 
 
 def _apply(device_id, quat):
-    """Aplica la orientación (con offset de calibración) al objeto asignado."""
+    """Apply the orientation (with calibration offset) to the assigned object."""
     _last_quat[device_id] = quat
     if device_id not in _seen_devices:
         _seen_devices.add(device_id)
         obj = _object_for_device(device_id)
-        target = obj.name if obj else "(sin objeto asignado)"
-        print(f"[wifi-bridge] Nuevo sensor: {device_id} -> {target}")
+        target = obj.name if obj else "(no object assigned)"
+        print(f"[wifi-bridge] New sensor: {device_id} -> {target}")
 
     obj = _object_for_device(device_id)
     if obj is None:
@@ -232,19 +231,19 @@ def _apply(device_id, quat):
 
 
 def _pump():
-    """Se ejecuta periódicamente vía bpy.app.timers sin bloquear la UI.
-    Drena todos los datagramas pendientes en cada tick."""
+    """Runs periodically via bpy.app.timers without blocking the UI.
+    Drains all pending datagrams on each tick."""
     global _sock, _calib_deadline
     if _sock is None:
         return 0.1
 
-    # Autocalibración diferida: al vencer el countdown, capturar la pose.
+    # Deferred auto-calibration: when the countdown expires, capture the pose.
     if _calib_deadline is not None and time.time() >= _calib_deadline:
         _calib_deadline = None
         calibrate()
 
-    # Drenar el buffer del socket (no bloqueante)
-    for _ in range(200):  # tope por tick para no colgar la UI si hay avalancha
+    # Drain the socket buffer (non-blocking)
+    for _ in range(200):  # per-tick cap so the UI doesn't hang on a flood
         try:
             data, _addr = _sock.recvfrom(2048)
         except BlockingIOError:
@@ -255,45 +254,45 @@ def _pump():
         if parsed is not None:
             _apply(parsed[0], parsed[1])
 
-    return 0.001  # polling continuo
+    return 0.001  # continuous polling
 
 
-# ---------- CONTROL / UTILIDADES ----------
+# ---------- CONTROL / UTILITIES ----------
 def calibrate():
-    """Captura la orientación ACTUAL de cada sensor visto como pose de
-    referencia (cero). Aplica el inverso a las lecturas siguientes.
-    Llama a esto con la persona/objeto en la pose de referencia (T-pose)."""
+    """Capture the CURRENT orientation of every seen sensor as the reference
+    pose (zero). Applies the inverse to subsequent readings. Call this with
+    the person/object in the reference pose (T-pose)."""
     n = 0
     for device_id, quat in _last_quat.items():
         _offsets[device_id] = quat.inverted()
         n += 1
     if n:
-        print(f"[wifi-bridge] Pose de referencia capturada para {n} sensor(es).")
+        print(f"[wifi-bridge] Reference pose captured for {n} sensor(s).")
     else:
-        print("[wifi-bridge] AVISO: aún no hay datos de ningún sensor para calibrar.")
+        print("[wifi-bridge] WARNING: no sensor data yet to calibrate against.")
 
 
 def recenter(device_id):
-    """Recalibra un sensor concreto por su DeviceID (pone su pose actual a 0)."""
+    """Recalibrate a specific sensor by its DeviceID (set its current pose to 0)."""
     quat = _last_quat.get(device_id)
     if quat is None:
-        print(f"[wifi-bridge] No hay datos del sensor '{device_id}' todavía.")
+        print(f"[wifi-bridge] No data from sensor '{device_id}' yet.")
         return
     _offsets[device_id] = quat.inverted()
-    print(f"[wifi-bridge] Sensor '{device_id}' recentrado.")
+    print(f"[wifi-bridge] Sensor '{device_id}' recentered.")
 
 
 def list_devices():
-    """Muestra los DeviceIDs vistos en esta sesión y su objeto asignado."""
+    """Show the DeviceIDs seen in this session and their assigned object."""
     if not _seen_devices:
-        print("[wifi-bridge] Aún no se ha recibido ningún sensor.")
+        print("[wifi-bridge] No sensor received yet.")
         return
-    print("[wifi-bridge] Sensores vistos:")
+    print("[wifi-bridge] Sensors seen:")
     for device_id in sorted(_seen_devices):
         obj = _object_for_device(device_id)
-        target = obj.name if obj else "(sin objeto)"
-        calib = "sí" if device_id in _offsets else "no"
-        print(f"    {device_id} -> {target}   [calibrado: {calib}]")
+        target = obj.name if obj else "(no object)"
+        calib = "yes" if device_id in _offsets else "no"
+        print(f"    {device_id} -> {target}   [calibrated: {calib}]")
 
 
 def start_bridge():
@@ -303,21 +302,21 @@ def start_bridge():
         _sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         _sock.bind((LISTEN_HOST, LISTEN_PORT))
         _sock.setblocking(False)
-        print(f"[wifi-bridge] Escuchando UDP en {LISTEN_HOST}:{LISTEN_PORT}")
+        print(f"[wifi-bridge] Listening on UDP {LISTEN_HOST}:{LISTEN_PORT}")
     except Exception as e:
-        print(f"[wifi-bridge] ERROR abriendo socket UDP: {e}")
+        print(f"[wifi-bridge] ERROR opening UDP socket: {e}")
         _sock = None
         return
 
     if AUTO_CALIBRATE:
         _calib_deadline = time.time() + CALIB_COUNTDOWN
-        print(f"[wifi-bridge] Autocalibración en {CALIB_COUNTDOWN:.0f}s: "
-              f"coloca el/los sensor(es) en la pose de referencia (T-pose).")
+        print(f"[wifi-bridge] Auto-calibration in {CALIB_COUNTDOWN:.0f}s: "
+              f"place the sensor(s) in the reference pose (T-pose).")
 
     if not bpy.app.timers.is_registered(_pump):
         bpy.app.timers.register(_pump)
-    print("[wifi-bridge] Bridge iniciado. Mueve el sensor para ver el objeto reaccionar.")
-    print("[wifi-bridge] Usa calibrate() para fijar el cero, list_devices() para ver sensores.")
+    print("[wifi-bridge] Bridge started. Move the sensor to see the object react.")
+    print("[wifi-bridge] Use calibrate() to set zero, list_devices() to see sensors.")
 
 
 def stop_bridge():
@@ -327,12 +326,12 @@ def stop_bridge():
     if _sock is not None:
         _sock.close()
         _sock = None
-    print("[wifi-bridge] Bridge detenido.")
+    print("[wifi-bridge] Bridge stopped.")
 
 
-# Al ejecutar el script directamente en Blender, arranca el bridge.
+# When running the script directly in Blender, start the bridge.
 if __name__ == "__main__":
     start_bridge()
 
-# Para detenerlo manualmente desde la consola Python de Blender:
+# To stop it manually from Blender's Python console:
 #   stop_bridge()

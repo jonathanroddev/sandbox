@@ -1,65 +1,65 @@
 # witmotion_bridge
 
-Puente en tiempo real de uno o varios sensores **WitMotion WT901WIFI** a
-**Blender** por WiFi (UDP). Es el paso hacia un traje de captura de
-movimiento multi-sensor, y hermano de [`blender_bridge/`](../blender_bridge/)
-(la versión Arduino + MPU por USB serial).
+Real-time bridge from one or more **WitMotion WT901WIFI** sensors to
+**Blender** over WiFi (UDP). It is the step toward a multi-sensor motion
+capture suit, and a sibling of [`blender_bridge/`](../blender_bridge/) (the
+Arduino + MPU version over USB serial).
 
-A diferencia del MPU, el WT901WIFI ya entrega ángulos fusionados por su
-propio filtro de Kalman: aquí solo se reciben por red, se calibran contra
-una pose de referencia y se aplican al objeto.
+Unlike the MPU, the WT901WIFI already delivers angles fused by its own
+Kalman filter: here we only receive them over the network, calibrate against
+a reference pose, and apply them to the object.
 
-## Estructura
+## Layout
 
 ```
 witmotion_bridge/
 ├── blender/
-│   ├── blender_udp_bridge.py   # receptor UDP para ejecutar dentro de Blender
-│   └── config.env              # toda la configuración (puerto, mapeo, ejes)
+│   ├── blender_udp_bridge.py   # UDP receiver to run inside Blender
+│   └── config.env              # all configuration (port, mapping, axes)
 ├── tools/
-│   ├── read_udp.py             # lector UDP de diagnóstico (fuera de Blender)
-│   └── fake_sensor.py          # emisor UDP falso: imita al WT901WIFI (probar sin hardware)
+│   ├── read_udp.py             # UDP diagnostic reader (outside Blender)
+│   └── fake_sensor.py          # fake UDP emitter: mimics the WT901WIFI (test without hardware)
 ├── docs/
-│   ├── CONTEXT.md              # decisiones, protocolo y setup del sensor
-│   └── SETUP_HARDWARE.md       # guía paso a paso para conectar el sensor real
-└── CLAUDE.md                   # guía de tareas para Claude Code
+│   ├── CONTEXT.md              # decisions, protocol and sensor setup
+│   └── SETUP_HARDWARE.md       # step-by-step guide to connect the real sensor
+└── CLAUDE.md                   # task guide for Claude Code
 ```
 
-## Requisitos
+## Requirements
 
-- Un **WT901WIFI** en la misma red WiFi que el ordenador (ver setup en
+- A **WT901WIFI** on the same WiFi network as the computer (see setup in
   [`docs/CONTEXT.md`](docs/CONTEXT.md)).
-- **Blender** (el receptor usa solo la librería estándar de Python +
-  `mathutils`, que ya viene con Blender: nada que instalar).
+- **Blender** (the receiver uses only Python's standard library +
+  `mathutils`, which ships with Blender: nothing to install).
 
-## Uso rápido
+## Quick start
 
-1. Configura el sensor en Station mode apuntando a la IP de tu equipo y al
-   puerto de `config.env` (por defecto 1399). Detalles en `docs/CONTEXT.md`.
-2. Valida las tramas sin Blender:
+1. Configure the sensor in Station mode pointing to your machine's IP and
+   the port in `config.env` (1399 by default). Details in `docs/CONTEXT.md`.
+2. Validate the frames without Blender:
    ```
    python3 tools/read_udp.py 1399 10
    ```
-   ¿Sin sensor todavía? Emite tramas falsas en otra terminal para probar el
-   flujo completo:
+   No sensor yet? Emit fake frames in another terminal to test the whole
+   flow:
    ```
    python3 tools/fake_sensor.py
    ```
-3. Ajusta `DEFAULT_OBJECT` (y `DEVICE_MAP`) en `blender/config.env`.
-4. En Blender: pestaña Scripting → abre `blender/blender_udp_bridge.py` →
-   Run Script. Coloca el sensor en la pose de referencia durante el
-   countdown de autocalibración.
+3. Adjust `DEFAULT_OBJECT` (and `DEVICE_MAP`) in `blender/config.env`.
+4. In Blender: Scripting tab → open `blender/blender_udp_bridge.py` → Run
+   Script. Place the sensor in the reference pose during the
+   auto-calibration countdown.
 
-Funciones útiles en la consola Python de Blender:
+Handy functions in Blender's Python console:
 `start_bridge()`, `calibrate()`, `recenter(device_id)`, `list_devices()`,
 `stop_bridge()`.
 
-## Estado
+## Status
 
-MVP de recepción + calibración por pose, **validado de punta a punta en
-software** (`fake_sensor.py` → `read_udp.py`: 13 campos, DeviceID en índice
-0, ángulos en 7/8/9). Pendiente de probar con el sensor real: seguir
-[`docs/SETUP_HARDWARE.md`](docs/SETUP_HARDWARE.md) para conectarlo, confirmar
-el formato del CSV y afinar el mapeo de ejes. El receptor ya soporta
-multi-sensor por DeviceID; el mapeo a un armature del traje es el siguiente
-paso (ver `CLAUDE.md`).
+Reception + pose-calibration MVP, **validated end-to-end in software**
+(`fake_sensor.py` → `read_udp.py`: 13 fields, DeviceID at index 0, angles at
+7/8/9). Pending a test with the real sensor: follow
+[`docs/SETUP_HARDWARE.md`](docs/SETUP_HARDWARE.md) to connect it, confirm the
+CSV format and fine-tune the axis mapping. The receiver already supports
+multi-sensor by DeviceID; mapping to a suit armature is the next step (see
+`CLAUDE.md`).

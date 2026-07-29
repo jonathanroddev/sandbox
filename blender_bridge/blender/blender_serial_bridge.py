@@ -1,39 +1,39 @@
 """
 blender_serial_bridge.py
 -------------------------
-Ejecutar DENTRO de Blender (pestaña Scripting -> Text Editor -> Run Script).
+Run INSIDE Blender (Scripting tab -> Text Editor -> Run Script).
 
-Lee líneas CSV del Arduino (MPU-6050) por el puerto serial:
+Reads CSV lines from the Arduino (MPU-6050) over the serial port:
     ax,ay,az,gx,gy,gz
 
-Calcula roll/pitch/yaw y los aplica al objeto indicado en OBJECT_NAME:
-  - Acelerómetro + giroscopio -> roll y pitch (filtro complementario).
-    Son ABSOLUTOS y estables (referencia de gravedad).
-  - Giroscopio integrado -> yaw. NO hay magnetómetro en el MPU-6050, así
-    que el yaw NO tiene referencia absoluta y DERIVA lentamente con el
-    tiempo. Se puede poner a cero cuando se quiera con recenter_yaw().
+Computes roll/pitch/yaw and applies them to the object named in OBJECT_NAME:
+  - Accelerometer + gyroscope -> roll and pitch (complementary filter).
+    These are ABSOLUTE and stable (gravity reference).
+  - Integrated gyroscope -> yaw. The MPU-6050 has NO magnetometer, so yaw
+    has NO absolute reference and DRIFTS slowly over time. It can be zeroed
+    at any moment with recenter_yaw().
 
-REQUISITOS:
-  Blender trae su propio intérprete de Python, así que hay que instalar
-  pyserial dentro de ESE python, no en el del sistema. Desde terminal:
+REQUIREMENTS:
+  Blender ships its own Python interpreter, so pyserial must be installed
+  into THAT python, not the system one. From a terminal:
 
       /Applications/Blender.app/Contents/Resources/<version>/python/bin/python3.x -m pip install pyserial
 
-  (encuentra la ruta ejecutando en la consola Python de Blender:
+  (find the path by running in Blender's Python console:
       import sys; print(sys.exec_prefix)
   )
 
-USO RÁPIDO (en la consola Python de Blender, tras Run Script):
-    start_bridge()      # arranca (calibra el bias del giroscopio ~1s en reposo)
-    recenter_yaw()      # pone el yaw actual a 0 (corrige la deriva acumulada)
-    recenter_all()      # pone roll/pitch/yaw a 0
-    stop_bridge()       # detiene y cierra el puerto
+QUICK USAGE (in Blender's Python console, after Run Script):
+    start_bridge()      # start (calibrates the gyro bias ~1s while at rest)
+    recenter_yaw()      # set current yaw to 0 (cancels accumulated drift)
+    recenter_all()      # set roll/pitch/yaw to 0
+    stop_bridge()       # stop and close the port
 
-NOTA SOBRE LA DERIVA DEL YAW:
-  Es inherente al hardware (sin magnetómetro). Para minimizarla, al
-  arrancar se estima el bias del giroscopio dejando el sensor QUIETO
-  durante ~1 segundo. Aun así, algo de deriva quedará; usa recenter_yaw()
-  cuando lo necesites (por ejemplo, mapeando una tecla a esa función).
+NOTE ON YAW DRIFT:
+  It is inherent to the hardware (no magnetometer). To minimize it, the gyro
+  bias is estimated at startup by keeping the sensor STILL for ~1 second.
+  Even so, some drift remains; use recenter_yaw() when needed (for example,
+  by mapping a key to that function).
 """
 
 import bpy
@@ -42,13 +42,13 @@ import math
 import time
 import os
 
-# ---------- CARGA DE CONFIGURACIÓN (config.env) ----------
-# Todo lo que suele cambiar entre PCs/escenas vive en config.env, no aquí.
-# El fichero se resuelve, en orden:
-#   1) variable de entorno BLENDER_BRIDGE_CONFIG (ruta absoluta), si existe.
-#   2) config.env junto a este script (cuando __file__ está definido).
-#   3) config.env en el directorio de trabajo actual.
-# Si no se encuentra, se usan los valores por defecto de _DEFAULTS.
+# ---------- CONFIGURATION LOADING (config.env) ----------
+# Everything that usually changes between PCs/scenes lives in config.env,
+# not here. The file is resolved, in order:
+#   1) the BLENDER_BRIDGE_CONFIG environment variable (absolute path), if set.
+#   2) config.env next to this script (when __file__ is defined).
+#   3) config.env in the current working directory.
+# If none is found, the _DEFAULTS values below are used.
 
 _DEFAULTS = {
     "SERIAL_PORT": "/dev/cu.usbmodem11201",
@@ -59,21 +59,21 @@ _DEFAULTS = {
     "SIGN_ROLL": "1",
     "SIGN_PITCH": "1",
     "SIGN_YAW": "1",
-    # Permutación de ejes: qué fuente (roll/pitch/yaw) va a cada eje de
-    # Blender, en orden X,Y,Z. Prefijo '-' para invertir. Identidad =
-    # "roll,pitch,yaw" (comportamiento clásico). Ver _parse_axis_map().
+    # Axis permutation: which source (roll/pitch/yaw) goes to each Blender
+    # axis, in X,Y,Z order. Prefix '-' to invert. Identity =
+    # "roll,pitch,yaw" (classic behavior). See _parse_axis_map().
     "AXIS_MAP": "pitch,roll,yaw",
 }
 
 
 def _blender_config_dirs():
-    """Directorios candidatos deducibles del propio Blender.
+    """Candidate directories inferable from Blender itself.
 
-    Dentro del editor de texto de Blender, `__file__` a menudo NO existe y
-    `os.getcwd()` no apunta a la carpeta del script, así que config.env no se
-    encontraba aunque estuviera "al lado". Aquí recuperamos la carpeta a
-    partir de los datablocks de texto externos abiertos (el .py cargado desde
-    disco expone su `filepath`) y de la ubicación del propio .blend guardado.
+    Inside Blender's text editor, `__file__` often does NOT exist and
+    `os.getcwd()` does not point to the script's folder, so config.env was
+    not found even when sitting right "next to" it. Here we recover the
+    folder from the open external text datablocks (a .py loaded from disk
+    exposes its `filepath`) and from the location of the saved .blend file.
     """
     dirs = []
     try:
@@ -88,7 +88,7 @@ def _blender_config_dirs():
             if d and d not in dirs:
                 dirs.append(d)
     except Exception:
-        pass  # bpy no disponible o API distinta; se ignora sin romper
+        pass  # bpy unavailable or different API; ignored without breaking
     return dirs
 
 
@@ -101,8 +101,8 @@ def _find_config_path():
         here = os.path.dirname(os.path.abspath(__file__))
         candidates.append(os.path.join(here, "config.env"))
     except NameError:
-        pass  # __file__ no definido (texto sin guardar en el editor de Blender)
-    # Carpetas deducidas de Blender (la vía fiable dentro del editor de texto).
+        pass  # __file__ not defined (unsaved text in Blender's editor)
+    # Folders inferred from Blender (the reliable path inside the text editor).
     for d in _blender_config_dirs():
         candidates.append(os.path.join(d, "config.env"))
     candidates.append(os.path.join(os.getcwd(), "config.env"))
@@ -113,11 +113,11 @@ def _find_config_path():
 
 
 def _load_config():
-    """Lee config.env (CLAVE=valor) y devuelve un dict, con _DEFAULTS de base."""
+    """Read config.env (KEY=value) and return a dict, based on _DEFAULTS."""
     cfg = dict(_DEFAULTS)
     path = _find_config_path()
     if path is None:
-        print("[bridge] AVISO: no se encontró config.env; usando valores por defecto.")
+        print("[bridge] WARNING: config.env not found; using default values.")
         return cfg
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -127,33 +127,33 @@ def _load_config():
                     continue
                 key, _, value = line.partition("=")
                 cfg[key.strip()] = value.strip()
-        print(f"[bridge] Config cargada de: {path}")
+        print(f"[bridge] Config loaded from: {path}")
     except Exception as e:
-        print(f"[bridge] AVISO: error leyendo {path}: {e}. Usando valores por defecto.")
+        print(f"[bridge] WARNING: error reading {path}: {e}. Using defaults.")
     return cfg
 
 
 def _parse_axis_map(spec):
-    """Convierte un AXIS_MAP tipo "pitch,-roll,yaw" en una lista de 3
-    tuplas (fuente, signo) para los ejes X, Y, Z de Blender.
+    """Turn an AXIS_MAP like "pitch,-roll,yaw" into a list of 3 tuples
+    (source, sign) for Blender's X, Y, Z axes.
 
-    - Exactamente 3 tokens separados por comas.
-    - Cada token es roll/pitch/yaw, opcionalmente con prefijo '+' o '-'.
-    - El '-' invierte ese eje (equivale a multiplicar por -1); se combina
-      con los SIGN_ROLL/PITCH/YAW (que se aplican a la fuente).
+    - Exactly 3 comma-separated tokens.
+    - Each token is roll/pitch/yaw, optionally prefixed with '+' or '-'.
+    - '-' inverts that axis (equivalent to multiplying by -1); it combines
+      with SIGN_ROLL/PITCH/YAW (which are applied to the source).
 
-    Ejemplos:
-        "roll,pitch,yaw"    -> identidad (clásico): X=roll, Y=pitch, Z=yaw
-        "pitch,roll,yaw"    -> intercambia roll y pitch
-        "roll,pitch,-yaw"   -> como identidad pero yaw invertido
-    Si el spec es inválido, avisa y cae a la identidad.
+    Examples:
+        "roll,pitch,yaw"    -> identity (classic): X=roll, Y=pitch, Z=yaw
+        "pitch,roll,yaw"    -> swaps roll and pitch
+        "roll,pitch,-yaw"   -> like identity but yaw inverted
+    If the spec is invalid, it warns and falls back to identity.
     """
     valid = {"roll", "pitch", "yaw"}
     identity = [("roll", 1.0), ("pitch", 1.0), ("yaw", 1.0)]
     tokens = [t.strip().lower() for t in str(spec).split(",")]
     if len(tokens) != 3:
-        print(f"[bridge] AVISO: AXIS_MAP debe tener 3 ejes, no {len(tokens)} "
-              f"({spec!r}). Usando identidad.")
+        print(f"[bridge] WARNING: AXIS_MAP must have 3 axes, not {len(tokens)} "
+              f"({spec!r}). Using identity.")
         return identity
     result = []
     for tok in tokens:
@@ -163,34 +163,34 @@ def _parse_axis_map(spec):
         elif tok.startswith("+"):
             tok = tok[1:].strip()
         if tok not in valid:
-            print(f"[bridge] AVISO: fuente de eje inválida en AXIS_MAP: "
-                  f"{tok!r} ({spec!r}). Usando identidad.")
+            print(f"[bridge] WARNING: invalid axis source in AXIS_MAP: "
+                  f"{tok!r} ({spec!r}). Using identity.")
             return identity
         result.append((tok, sign))
-    fuentes = [src for src, _ in result]
-    if set(fuentes) != valid:
-        print(f"[bridge] AVISO: AXIS_MAP no usa roll/pitch/yaw exactamente "
-              f"una vez cada uno ({spec!r}). Se aplica igualmente, pero "
-              f"probablemente no es lo que quieres.")
+    sources = [src for src, _ in result]
+    if set(sources) != valid:
+        print(f"[bridge] WARNING: AXIS_MAP does not use roll/pitch/yaw exactly "
+              f"once each ({spec!r}). Applied anyway, but this is probably "
+              f"not what you want.")
     return result
 
 
 _cfg = _load_config()
 
-# ---------- CONFIGURACIÓN EFECTIVA ----------
+# ---------- EFFECTIVE CONFIGURATION ----------
 SERIAL_PORT = _cfg["SERIAL_PORT"]
 BAUD_RATE = int(_cfg["BAUD_RATE"])
 OBJECT_NAME = _cfg["OBJECT_NAME"]
-ALPHA_ROLL_PITCH = float(_cfg["ALPHA_ROLL_PITCH"])   # Peso del giroscopio en roll/pitch
-GYRO_CALIB_SAMPLES = int(_cfg["GYRO_CALIB_SAMPLES"])  # Muestras para el bias del giroscopio
-SIGN_ROLL = float(_cfg["SIGN_ROLL"])                 # Signo de eje (+1 / -1) según montaje
+ALPHA_ROLL_PITCH = float(_cfg["ALPHA_ROLL_PITCH"])   # Gyro weight in roll/pitch
+GYRO_CALIB_SAMPLES = int(_cfg["GYRO_CALIB_SAMPLES"])  # Samples for the gyro bias
+SIGN_ROLL = float(_cfg["SIGN_ROLL"])                 # Axis sign (+1 / -1) per mounting
 SIGN_PITCH = float(_cfg["SIGN_PITCH"])
 SIGN_YAW = float(_cfg["SIGN_YAW"])
-AXIS_MAP = _parse_axis_map(_cfg["AXIS_MAP"])         # Permutación fuente->eje Blender
-print(f"[bridge] AXIS_MAP efectivo (X,Y,Z): "
+AXIS_MAP = _parse_axis_map(_cfg["AXIS_MAP"])         # Source->Blender-axis permutation
+print(f"[bridge] Effective AXIS_MAP (X,Y,Z): "
       f"{[(s if g > 0 else '-' + s) for s, g in AXIS_MAP]}")
 
-# ---------- ESTADO GLOBAL ----------
+# ---------- GLOBAL STATE ----------
 _ser = None
 _roll = 0.0
 _pitch = 0.0
@@ -205,16 +205,16 @@ def _open_serial():
     global _ser
     try:
         _ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1)
-        time.sleep(2)  # Dar tiempo a que el Arduino reinicie tras abrir el puerto
+        time.sleep(2)  # Give the Arduino time to reset after opening the port
         _ser.reset_input_buffer()
-        print(f"[bridge] Puerto serial abierto: {SERIAL_PORT}")
+        print(f"[bridge] Serial port opened: {SERIAL_PORT}")
     except Exception as e:
-        print(f"[bridge] ERROR abriendo puerto serial: {e}")
+        print(f"[bridge] ERROR opening serial port: {e}")
         _ser = None
 
 
 def _parse_line(line):
-    """Devuelve (ax,ay,az,gx,gy,gz) o None si la línea no es válida."""
+    """Return (ax,ay,az,gx,gy,gz) or None if the line is not valid."""
     parts = line.split(",")
     if len(parts) != 6:
         return None
@@ -225,15 +225,15 @@ def _parse_line(line):
 
 
 def _calibrate_gyro_bias():
-    """Promedia varias lecturas con el sensor QUIETO para estimar el bias
-    del giroscopio (offset que, integrado, causaría deriva)."""
+    """Average several readings with the sensor STILL to estimate the gyro
+    bias (an offset that, once integrated, would cause drift)."""
     global _bias_gx, _bias_gy, _bias_gz
     if _ser is None:
         return
-    print("[bridge] Calibrando bias del giroscopio: MANTÉN EL SENSOR QUIETO...")
+    print("[bridge] Calibrating gyro bias: KEEP THE SENSOR STILL...")
     sx = sy = sz = 0.0
     n = 0
-    t_end = time.time() + 3.0  # como máximo 3s buscando muestras
+    t_end = time.time() + 3.0  # at most 3s looking for samples
     while n < GYRO_CALIB_SAMPLES and time.time() < t_end:
         line = _ser.readline().decode("utf-8", errors="ignore").strip()
         vals = _parse_line(line)
@@ -246,21 +246,21 @@ def _calibrate_gyro_bias():
         _bias_gx = sx / n
         _bias_gy = sy / n
         _bias_gz = sz / n
-        print(f"[bridge] Bias giroscopio (°/s): "
-              f"gx={_bias_gx:.3f} gy={_bias_gy:.3f} gz={_bias_gz:.3f}  ({n} muestras)")
+        print(f"[bridge] Gyro bias (deg/s): "
+              f"gx={_bias_gx:.3f} gy={_bias_gy:.3f} gz={_bias_gz:.3f}  ({n} samples)")
     else:
-        print("[bridge] AVISO: no se pudo calibrar el bias (sin datos). Bias = 0.")
+        print("[bridge] WARNING: could not calibrate the bias (no data). Bias = 0.")
 
 
 def _complementary_filter(ax, ay, az, gx, gy, gz, dt):
     global _roll, _pitch, _yaw
 
-    # Restar el bias estimado del giroscopio
+    # Subtract the estimated gyro bias
     gx -= _bias_gx
     gy -= _bias_gy
     gz -= _bias_gz
 
-    # --- Roll/pitch: acelerómetro (absoluto) + giroscopio (suave) ---
+    # --- Roll/pitch: accelerometer (absolute) + gyroscope (smooth) ---
     accel_roll = math.degrees(math.atan2(ay, az))
     accel_pitch = math.degrees(math.atan2(-ax, math.sqrt(ay * ay + az * az)))
 
@@ -270,23 +270,23 @@ def _complementary_filter(ax, ay, az, gx, gy, gz, dt):
     _roll = ALPHA_ROLL_PITCH * gyro_roll + (1 - ALPHA_ROLL_PITCH) * accel_roll
     _pitch = ALPHA_ROLL_PITCH * gyro_pitch + (1 - ALPHA_ROLL_PITCH) * accel_pitch
 
-    # --- Yaw: SOLO giroscopio integrado (sin magnetómetro -> deriva) ---
+    # --- Yaw: ONLY integrated gyroscope (no magnetometer -> drift) ---
     _yaw += gz * dt
 
     return _roll, _pitch, _yaw
 
 
 def _read_serial_and_update():
-    """Se ejecuta periódicamente vía bpy.app.timers sin bloquear la UI."""
+    """Runs periodically via bpy.app.timers without blocking the UI."""
     global _ser, _last_time
 
     if _ser is None:
-        return 0.1  # reintentar en 0.1s
+        return 0.1  # retry in 0.1s
 
     line = _ser.readline().decode("utf-8", errors="ignore").strip()
     vals = _parse_line(line)
     if vals is None:
-        return 0.001  # sin datos nuevos o línea corrupta, reintentar pronto
+        return 0.001  # no new data or corrupt line, retry soon
 
     ax, ay, az, gx, gy, gz = vals
 
@@ -298,35 +298,35 @@ def _read_serial_and_update():
 
     obj = bpy.data.objects.get(OBJECT_NAME)
     if obj:
-        # 1) Signo por fuente (según montaje). 2) Permutación a ejes de Blender.
-        fuentes = {
+        # 1) Per-source sign (per mounting). 2) Permutation to Blender axes.
+        sources = {
             "roll": SIGN_ROLL * roll,
             "pitch": SIGN_PITCH * pitch,
             "yaw": SIGN_YAW * yaw,
         }
         (src_x, sg_x), (src_y, sg_y), (src_z, sg_z) = AXIS_MAP
         obj.rotation_euler = (
-            math.radians(sg_x * fuentes[src_x]),
-            math.radians(sg_y * fuentes[src_y]),
-            math.radians(sg_z * fuentes[src_z]),
+            math.radians(sg_x * sources[src_x]),
+            math.radians(sg_y * sources[src_y]),
+            math.radians(sg_z * sources[src_z]),
         )
 
-    return 0.001  # polling continuo
+    return 0.001  # continuous polling
 
 
-# ---------- CONTROL / UTILIDADES ----------
+# ---------- CONTROL / UTILITIES ----------
 def recenter_yaw():
-    """Pone el yaw actual a 0 (corrige la deriva acumulada del giroscopio)."""
+    """Set the current yaw to 0 (cancels accumulated gyro drift)."""
     global _yaw
     _yaw = 0.0
-    print("[bridge] Yaw recentrado a 0.")
+    print("[bridge] Yaw recentered to 0.")
 
 
 def recenter_all():
-    """Pone roll/pitch/yaw a 0."""
+    """Set roll/pitch/yaw to 0."""
     global _roll, _pitch, _yaw
     _roll = _pitch = _yaw = 0.0
-    print("[bridge] Roll/pitch/yaw recentrados a 0.")
+    print("[bridge] Roll/pitch/yaw recentered to 0.")
 
 
 def start_bridge():
@@ -335,8 +335,8 @@ def start_bridge():
         _calibrate_gyro_bias()
     if not bpy.app.timers.is_registered(_read_serial_and_update):
         bpy.app.timers.register(_read_serial_and_update)
-    print("[bridge] Bridge iniciado. Mueve el sensor para ver el objeto reaccionar.")
-    print("[bridge] Si el yaw se desvía, llama a recenter_yaw().")
+    print("[bridge] Bridge started. Move the sensor to see the object react.")
+    print("[bridge] If yaw drifts, call recenter_yaw().")
 
 
 def stop_bridge():
@@ -347,12 +347,12 @@ def stop_bridge():
         _ser.close()
         _ser = None
     _last_time = None
-    print("[bridge] Bridge detenido.")
+    print("[bridge] Bridge stopped.")
 
 
-# Al ejecutar el script directamente en Blender, arranca el bridge.
+# When running the script directly in Blender, start the bridge.
 if __name__ == "__main__":
     start_bridge()
 
-# Para detenerlo manualmente desde la consola Python de Blender:
+# To stop it manually from Blender's Python console:
 #   stop_bridge()

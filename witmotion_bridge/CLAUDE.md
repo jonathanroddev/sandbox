@@ -1,77 +1,78 @@
-# Guía para Claude Code — witmotion_bridge
+# Guide for Claude Code — witmotion_bridge
 
-Contexto rápido para trabajar en este proyecto con el hardware conectado.
-Lee también `docs/CONTEXT.md` para el detalle de decisiones y protocolo.
+Quick context to work on this project with the hardware connected. Also read
+`docs/CONTEXT.md` for the detail of decisions and protocol.
 
-## Qué es esto
-Puente WiFi de sensor(es) **WitMotion WT901WIFI** a **Blender**. El sensor
-entrega ángulos ya fusionados (Kalman interno) por UDP; el receptor los
-parsea por DeviceID, los calibra contra una pose de referencia (en
-cuaterniones) y mueve objetos de la escena. Hermano de `../blender_bridge/`
-(versión Arduino+MPU por serial).
+## What this is
+WiFi bridge from **WitMotion WT901WIFI** sensor(s) to **Blender**. The sensor
+delivers already-fused angles (internal Kalman) over UDP; the receiver parses
+them by DeviceID, calibrates them against a reference pose (in quaternions)
+and moves scene objects. Sibling of `../blender_bridge/` (the Arduino+MPU
+serial version).
 
-## Reglas del repo (heredadas de sandbox)
-- Cada proyecto es una carpeta autocontenida de nivel superior.
-- **Toda la configuración va en `blender/config.env`** (formato CLAVE=valor,
-  sin comillas, se lee sin dependencias externas). No hardcodear rutas,
-  puertos ni nombres de objeto en el código.
-- Comentarios y mensajes al usuario **en español**.
-- El código de Blender no debe bloquear la UI: usar `bpy.app.timers`.
-- El bridge usa **solo librería estándar + `mathutils`** (viene con
-  Blender). No añadir dependencias sin justificarlo.
+## Repo rules (inherited from sandbox)
+- Each project is a self-contained top-level folder.
+- **All configuration lives in `blender/config.env`** (KEY=value format, no
+  quotes, read without external dependencies). Do not hardcode paths, ports
+  or object names in the code.
+- Comments and user-facing messages **in English**.
+- Blender code must not block the UI: use `bpy.app.timers`.
+- The bridge uses **only the standard library + `mathutils`** (ships with
+  Blender). Do not add dependencies without justifying it.
 
-## Estado actual
-- `blender/blender_udp_bridge.py` — receptor UDP funcional: parseo por
-  DeviceID, calibración por pose con cuaterniones, mapeo sensor→objeto,
-  utilidades (`calibrate`, `recenter`, `list_devices`, `start/stop_bridge`).
-- `blender/config.env` — puerto, `DEVICE_MAP`, autocalibración, signos de
-  eje, e índices de campo del CSV (`IDX_*`).
-- `tools/read_udp.py` — diagnóstico UDP fuera de Blender.
+## Current status
+- `blender/blender_udp_bridge.py` — working UDP receiver: parsing by
+  DeviceID, pose calibration with quaternions, sensor→object mapping,
+  utilities (`calibrate`, `recenter`, `list_devices`, `start/stop_bridge`).
+- `blender/config.env` — port, `DEVICE_MAP`, auto-calibration, axis signs,
+  and the CSV field indices (`IDX_*`).
+- `tools/read_udp.py` — UDP diagnostics outside Blender.
 
-## Incertidumbre conocida (resolver primero, con el sensor delante)
-1. **Formato exacto del CSV.** Los índices de campo (`IDX_ANGLE_X/Y/Z=7,8,9`
-   y `IDX_DEVICE=0`) vienen de la documentación del producto, pero pueden
-   variar con el firmware. Ejecuta `python3 tools/read_udp.py 1399 10`,
-   mira las líneas reales, y ajusta los `IDX_*` en `config.env` si hace
-   falta. NO cambies el código para esto: cambia la config.
-2. **Marco de ejes sensor vs Blender.** El sensor usa orden de Euler Z-Y-X
-   y su propio marco; Blender es Z-up. El mapeo inicial es directo con
-   signos configurables. Verifica moviendo el sensor un eje cada vez y
-   ajusta `SIGN_ROLL/PITCH/YAW` o el orden en `_angles_to_quat()`.
+## Known uncertainty (resolve first, with the sensor in hand)
+1. **Exact CSV format.** The field indices (`IDX_ANGLE_X/Y/Z=7,8,9` and
+   `IDX_DEVICE=0`) come from the product documentation, but may vary with the
+   firmware. Run `python3 tools/read_udp.py 1399 10`, look at the real lines,
+   and adjust the `IDX_*` in `config.env` if needed. Do NOT change the code
+   for this: change the config.
+2. **Sensor vs Blender axis frame.** The sensor uses Z-Y-X Euler order and
+   its own frame; Blender is Z-up. The initial mapping is direct with
+   configurable signs. Verify by moving the sensor one axis at a time and
+   adjust `SIGN_ROLL/PITCH/YAW` or the order in `_angles_to_quat()`.
 
-## Tareas sugeridas (en orden)
-1. **Validar recepción**: `tools/read_udp.py`; confirmar DeviceID, nº de
-   campos y posición de los ángulos. Ajustar `config.env` si procede.
-2. **Un sensor en Blender**: `DEFAULT_OBJECT` al objeto de la escena, Run
-   Script, autocalibrar en pose de referencia, comprobar ejes/sentidos.
-3. **Afinar mapeo de ejes** hasta que el objeto siga fielmente al sensor.
-4. **Multi-sensor**: con varios sensores emitiendo, `list_devices()` para
-   ver los DeviceIDs y rellenar `DEVICE_MAP` (DeviceID:Objeto).
-5. **Mapear a un armature**: evolucionar de objetos sueltos a
-   `pose.bones[...]`, resolviendo orientación de cada hueso relativa a su
-   padre. Este es el corazón del traje.
-6. **Opcional**: si el firmware incluye cuaternión nativo en la trama,
-   usarlo en lugar de convertir desde Euler (evita ambigüedad de orden).
+## Suggested tasks (in order)
+1. **Validate reception**: `tools/read_udp.py`; confirm DeviceID, field count
+   and angle positions. Adjust `config.env` if appropriate.
+2. **One sensor in Blender**: point `DEFAULT_OBJECT` at the scene object, Run
+   Script, auto-calibrate in the reference pose, check axes/directions.
+3. **Fine-tune the axis mapping** until the object faithfully follows the
+   sensor.
+4. **Multi-sensor**: with several sensors emitting, `list_devices()` to see
+   the DeviceIDs and fill `DEVICE_MAP` (DeviceID:Object).
+5. **Map to an armature**: evolve from loose objects to `pose.bones[...]`,
+   resolving each bone's orientation relative to its parent. This is the
+   heart of the suit.
+6. **Optional**: if the firmware includes a native quaternion in the frame,
+   use it instead of converting from Euler (avoids order ambiguity).
 
-## Cómo probar sin hardware
-`tools/fake_sensor.py` es un emisor UDP falso que imita al WT901WIFI:
-envía tramas CSV con el layout por defecto (13 campos, ángulos animados) al
-puerto de `config.env`. Sirve para validar parseo y calibración antes de
-tener el sensor en red, y como referencia contra la que contrastar el
-sensor real cuando se conecte.
+## Testing without hardware
+`tools/fake_sensor.py` is a fake UDP emitter that mimics the WT901WIFI: it
+sends CSV frames with the default layout (13 fields, animated angles) to the
+port in `config.env`. Use it to validate parsing and calibration before
+having the sensor on the network, and as a reference to compare the real
+sensor against when it connects.
 
-    # Terminal 1: comprobar que llegan tramas y su formato
+    # Terminal 1: check frames arrive and their format
     python3 tools/read_udp.py 1399 3
-    # Terminal 2: emitir (un sensor, indefinido)
+    # Terminal 2: emit (one sensor, indefinite)
     python3 tools/fake_sensor.py
-    # Multi-sensor de prueba (dos DeviceID, 100 Hz):
+    # Multi-sensor test (two DeviceIDs, 100 Hz):
     python3 tools/fake_sensor.py 1399 0 100 127.0.0.1 WT53abc,WT53def
 
-En Blender: Run Script del bridge y, en paralelo, lanzar `fake_sensor.py`
--> el objeto de `DEFAULT_OBJECT`/`DEVICE_MAP` debe oscilar. Verificado
-extremo a extremo (fake_sensor -> read_udp): 13 campos, DeviceID en índice
-0, ángulos en 7/8/9, coherente con los `IDX_*`.
+In Blender: Run Script the bridge and, in parallel, launch `fake_sensor.py`
+-> the `DEFAULT_OBJECT`/`DEVICE_MAP` object should oscillate. Verified
+end-to-end (fake_sensor -> read_udp): 13 fields, DeviceID at index 0, angles
+at 7/8/9, consistent with the `IDX_*`.
 
-Nota: el emisor reproduce el layout POR DEFECTO documentado. Cuando llegue
-el sensor REAL, si `read_udp.py` muestra otro orden/nº de campos, se ajusta
-en `config.env` (`IDX_*`), no en el código.
+Note: the emitter reproduces the documented DEFAULT layout. When the REAL
+sensor arrives, if `read_udp.py` shows a different order/field count, it is
+adjusted in `config.env` (`IDX_*`), not in the code.

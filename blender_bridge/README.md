@@ -1,180 +1,178 @@
 # Blender Bridge — Arduino (MPU-6050) → Blender
 
-Puente en tiempo real que lee la orientación de un sensor de movimiento
-**MPU-6050** conectado a un **Arduino Uno** por USB y la aplica a un objeto
-de una escena de **Blender** (roll/pitch/yaw).
+Real-time bridge that reads orientation from an **MPU-6050** motion sensor
+wired to an **Arduino Uno** over USB and applies it to an object in a
+**Blender** scene (roll/pitch/yaw).
 
-- **Roll y pitch**: absolutos y estables (acelerómetro + giroscopio con
-  filtro complementario; referencia de gravedad).
-- **Yaw**: solo giroscopio integrado → **deriva** lentamente (el MPU-6050
-  no tiene magnetómetro). Se corrige a mano con `recenter_yaw()`.
-- **Posición**: fuera de alcance.
+- **Roll and pitch**: absolute and stable (accelerometer + gyroscope with a
+  complementary filter; gravity reference).
+- **Yaw**: integrated gyroscope only → drifts slowly (the MPU-6050 has no
+  magnetometer). Reset manually with `recenter_yaw()`.
+- **Position**: out of scope.
 
-Contexto técnico completo y decisiones de arquitectura: [`docs/CONTEXT.md`](docs/CONTEXT.md).
-Hardware y su puesta a punto: [`docs/SETUP_HARDWARE.md`](docs/SETUP_HARDWARE.md).
+Full technical context and architecture decisions: [`docs/CONTEXT.md`](docs/CONTEXT.md).
+Hardware and its setup: [`docs/SETUP_HARDWARE.md`](docs/SETUP_HARDWARE.md).
 
-## Estructura
+## Layout
 
 ```
 blender_bridge/
 ├── arduino/
-│   ├── mpu_serial_bridge/   Sketch principal: lee accel+gyro y emite CSV
-│   └── i2c_diag/            Diagnóstico I2C (WHO_AM_I, escaneo de bus)
+│   ├── mpu_serial_bridge/   Main sketch: reads accel+gyro and emits CSV
+│   └── i2c_diag/            I2C diagnostics (WHO_AM_I, bus scan)
 ├── blender/
-│   ├── blender_serial_bridge.py   Script a ejecutar DENTRO de Blender
-│   └── config.env                 ÚNICO fichero que sueles tocar
+│   ├── blender_serial_bridge.py   Script to run INSIDE Blender
+│   └── config.env                 The ONLY file you usually touch
 ├── tools/
-│   └── read_serial.py       Volcado serial de diagnóstico (Python del sistema)
-├── backups/                 Respaldo de flash/EEPROM originales del Uno
-└── docs/                    Contexto y setup de hardware
+│   └── read_serial.py       Serial diagnostic dump (system Python)
+├── backups/                 Backup of the Uno's original flash/EEPROM
+└── docs/                    Context and hardware setup
 ```
 
-El sensor envía por serial (115200 baudios, ~50 Hz) una línea CSV por lectura:
+The sensor sends one CSV line per reading over serial (115200 baud, ~50 Hz):
 
 ```
-ax,ay,az,gx,gy,gz        # accel en g, gyro en °/s
+ax,ay,az,gx,gy,gz        # accel in g, gyro in deg/s
 ```
 
-## Puesta a punto
+## Setup
 
-### 1. Flashear el Arduino
+### 1. Flash the Arduino
 
-Con `arduino-cli` (core `arduino:avr` instalado):
+With `arduino-cli` (the `arduino:avr` core installed):
 
 ```bash
 arduino-cli compile --fqbn arduino:avr:uno arduino/mpu_serial_bridge
 arduino-cli upload -p /dev/cu.usbmodem11201 --fqbn arduino:avr:uno arduino/mpu_serial_bridge
 ```
 
-Ajusta el puerto a tu sistema:
-- macOS: `ls /dev/cu.*` → p.ej. `/dev/cu.usbmodem11201`
-- Linux: `ls /dev/ttyACM* /dev/ttyUSB*` → p.ej. `/dev/ttyACM0`
-- Windows: Administrador de dispositivos → p.ej. `COM3`
+Adjust the port for your system:
+- macOS: `ls /dev/cu.*` → e.g. `/dev/cu.usbmodem11201`
+- Linux: `ls /dev/ttyACM* /dev/ttyUSB*` → e.g. `/dev/ttyACM0`
+- Windows: Device Manager → e.g. `COM3`
 
-### 2. Verificar el CSV crudo (sin Blender)
+### 2. Verify the raw CSV (without Blender)
 
-Con el **Python del sistema** (necesita `pyserial`):
+With the **system Python** (needs `pyserial`):
 
 ```bash
 python3 tools/read_serial.py /dev/cu.usbmodem11201 6 115200
 ```
 
-Debes ver 6 valores por línea y, con el sensor quieto, `|accel| ≈ 1.0 g`.
+You should see 6 values per line and, with the sensor still, `|accel| ≈ 1.0 g`.
 
-### 3. Instalar `pyserial` en el Python DE BLENDER
+### 3. Install `pyserial` into BLENDER's Python
 
-Blender trae su **propio** intérprete de Python; `pyserial` hay que
-instalarlo ahí, no en el del sistema. Averigua su ruta desde la consola
-Python de Blender:
+Blender ships its **own** Python interpreter; `pyserial` must be installed
+there, not into the system one. Find its path from Blender's Python console:
 
 ```python
 import sys; print(sys.exec_prefix)
 ```
 
-y luego, desde una terminal:
+then, from a terminal:
 
 ```bash
 /Applications/Blender.app/Contents/Resources/<version>/python/bin/python3.x -m pip install pyserial
 ```
 
-(En Linux/Windows la ruta será distinta, dentro de la instalación de Blender.)
+(On Linux/Windows the path differs, inside the Blender installation.)
 
-### 4. Configurar `blender/config.env`
+### 4. Configure `blender/config.env`
 
-**No hace falta editar el `.py`.** Toca solo `config.env`:
+**No need to edit the `.py`.** Touch only `config.env`:
 
-- `SERIAL_PORT` → el puerto de tu sistema (ver paso 1).
-- `OBJECT_NAME` → nombre EXACTO del objeto de la escena que se moverá.
-- Resto de parámetros (filtro, mapeo de ejes): ver más abajo.
+- `SERIAL_PORT` → your system's port (see step 1).
+- `OBJECT_NAME` → EXACT name of the scene object that will be moved.
+- The rest (filter, axis mapping): see below.
 
-### 5. Ejecutar en Blender
+### 5. Run in Blender
 
-1. Pestaña **Scripting** → **Text Editor** → abre
-   `blender/blender_serial_bridge.py` desde disco (**Open**, no pegar el
-   texto: así el script encuentra el `config.env` que tiene al lado, ver
-   más abajo).
+1. **Scripting** tab → **Text Editor** → open
+   `blender/blender_serial_bridge.py` from disk (**Open**, don't paste the
+   text: that way the script can find the `config.env` sitting next to it,
+   see below).
 2. **Run Script**.
-3. Mantén el sensor **quieto ~1 s** al arrancar (calibra el bias del giro).
-4. Mueve el sensor y comprueba que el objeto reacciona.
+3. Keep the sensor **still for ~1 s** at startup (it calibrates the gyro bias).
+4. Move the sensor and check that the object reacts.
 
-Control desde la **consola Python** de Blender:
+Control from Blender's **Python console**:
 
 ```python
-start_bridge()    # arranca (calibra el bias del giroscopio en reposo)
-recenter_yaw()    # pone el yaw actual a 0 (corrige la deriva acumulada)
-recenter_all()    # pone roll/pitch/yaw a 0
-stop_bridge()     # detiene y cierra el puerto
+start_bridge()    # start (calibrates the gyro bias at rest)
+recenter_yaw()    # set the current yaw to 0 (cancels accumulated drift)
+recenter_all()    # set roll/pitch/yaw to 0
+stop_bridge()     # stop and close the port
 ```
 
-## Calibración del mapeo de ejes
+## Axis mapping calibration
 
-Depende de **cómo esté montado físicamente** el sensor. En `config.env`:
+It depends on **how the sensor is physically mounted**. In `config.env`:
 
-- **`SIGN_ROLL` / `SIGN_PITCH` / `SIGN_YAW`** (`+1` / `-1`): invierten el
-  **sentido** de un eje que gira "al revés".
-- **`AXIS_MAP`**: **permuta** qué fuente (roll/pitch/yaw) va a cada eje de
-  Blender, en orden **X,Y,Z**. Esto arregla el síntoma *"muevo un eje y
-  responde otro"*, que los signos NO pueden corregir. Cada token es
-  `roll`/`pitch`/`yaw`, con prefijo `-` opcional para invertir.
+- **`SIGN_ROLL` / `SIGN_PITCH` / `SIGN_YAW`** (`+1` / `-1`): invert the
+  **direction** of an axis that rotates "backwards".
+- **`AXIS_MAP`**: **permutes** which source (roll/pitch/yaw) goes to each
+  Blender axis, in **X,Y,Z** order. This fixes the *"I move one axis and
+  another one responds"* symptom, which signs CANNOT fix. Each token is
+  `roll`/`pitch`/`yaw`, with an optional `-` prefix to invert.
 
-  | AXIS_MAP | Efecto |
+  | AXIS_MAP | Effect |
   |---|---|
-  | `roll,pitch,yaw` | Identidad (clásico): X=roll, Y=pitch, Z=yaw |
-  | `pitch,roll,yaw` | Intercambia roll y pitch |
-  | `roll,pitch,-yaw` | Igual que identidad pero yaw invertido |
+  | `roll,pitch,yaw` | Identity (classic): X=roll, Y=pitch, Z=yaw |
+  | `pitch,roll,yaw` | Swaps roll and pitch |
+  | `roll,pitch,-yaw` | Like identity but yaw inverted |
 
-**Procedimiento** (con el bridge corriendo, aislando un eje cada vez):
+**Procedure** (with the bridge running, isolating one axis at a time):
 
-| Giras físicamente… | Debería mover el eje… | ¿Cuál mueve? |
+| You physically rotate… | Should move the axis… | Which one moves? |
 |---|---|---|
-| roll (sobre X del sensor) | X de Blender | ? |
-| pitch (sobre Y del sensor) | Y de Blender | ? |
-| yaw (vertical) | Z de Blender | ? |
+| roll (about sensor X) | Blender X | ? |
+| pitch (about sensor Y) | Blender Y | ? |
+| yaw (vertical) | Blender Z | ? |
 
-Si un giro aparece en otro eje, coloca esa fuente en la posición X/Y/Z que
-corresponda dentro de `AXIS_MAP`. Si aparece invertido, añádele el `-`.
+If a rotation shows up on another axis, place that source in the matching
+X/Y/Z slot of `AXIS_MAP`. If it shows up inverted, add the `-`.
 
-> El `config.env` incluido trae `AXIS_MAP=pitch,roll,yaw` como **ejemplo
-> razonado sin hardware a mano** (el "roll" del sensor va sobre su eje X,
-> pero el eje longitudinal en Blender suele ser +Y). Ajústalo con la tabla.
+> The bundled `config.env` ships `AXIS_MAP=pitch,roll,yaw` as an **educated
+> guess without hardware on hand** (the sensor's "roll" is about its X axis,
+> but the longitudinal axis in Blender is usually +Y). Adjust it with the table.
 
-## Filtro / tuning
+## Filter / tuning
 
-- `ALPHA_ROLL_PITCH` (0..1): peso del giroscopio en roll/pitch. Más alto =
-  más suave pero lento a corregir; más bajo = más reactivo (más nervioso).
-- `GYRO_CALIB_SAMPLES`: muestras en reposo para estimar el bias del
-  giroscopio al arrancar.
+- `ALPHA_ROLL_PITCH` (0..1): gyro weight in roll/pitch. Higher = smoother but
+  slower to correct; lower = more reactive (more jittery).
+- `GYRO_CALIB_SAMPLES`: samples at rest to estimate the gyro bias at startup.
 
-## Cómo se localiza el `config.env`
+## How `config.env` is located
 
-El script busca el `config.env` en este orden:
+The script looks for `config.env` in this order:
 
-1. Ruta absoluta en la variable de entorno `BLENDER_BRIDGE_CONFIG`, si existe.
-2. Junto al `.py` (cuando `__file__` está definido).
-3. **Carpetas deducidas de Blender**: la del `.py` abierto como texto
-   externo y la del `.blend` guardado.
-4. El directorio de trabajo actual.
-5. Si no lo encuentra, usa los valores por defecto internos del script.
+1. Absolute path in the `BLENDER_BRIDGE_CONFIG` environment variable, if set.
+2. Next to the `.py` (when `__file__` is defined).
+3. **Folders inferred from Blender**: that of the `.py` opened as an external
+   text and that of the saved `.blend`.
+4. The current working directory.
+5. If not found, the script's internal default values are used.
 
-> **Nota (problema conocido):** dentro del Text Editor de Blender, `__file__`
-> a menudo **no existe** y `os.getcwd()` no apunta a la carpeta del script,
-> por lo que el `config.env` "de al lado" no se encontraba y había que editar
-> los valores por defecto del `.py`. El paso 3 lo resuelve **si abres el
-> script desde disco** (Open) en lugar de pegar el texto. Si aun así falla,
-> exporta la ruta antes de abrir Blender:
+> **Note (known issue):** inside Blender's Text Editor, `__file__` often does
+> **not** exist and `os.getcwd()` does not point to the script's folder, so
+> the `config.env` "right next to it" was not found and you had to edit the
+> defaults in the `.py`. Step 3 solves this **if you open the script from
+> disk** (Open) instead of pasting the text. If it still fails, export the
+> path before launching Blender:
 >
 > ```bash
-> export BLENDER_BRIDGE_CONFIG=/ruta/absoluta/a/blender_bridge/blender/config.env
+> export BLENDER_BRIDGE_CONFIG=/absolute/path/to/blender_bridge/blender/config.env
 > ```
 
-## Solución de problemas
+## Troubleshooting
 
-| Síntoma | Causa probable / arreglo |
+| Symptom | Likely cause / fix |
 |---|---|
-| `ERROR abriendo puerto serial` | Puerto mal en `config.env`, o ocupado por otra app (cierra el Monitor Serie / `read_serial.py`). |
-| `ModuleNotFoundError: serial` en Blender | `pyserial` instalado en el Python del sistema, no en el de Blender (paso 3). |
-| Se movía con `_DEFAULTS`, ignoraba `config.env` | No se encontró el fichero: abre el `.py` desde disco o usa `BLENDER_BRIDGE_CONFIG` (ver arriba). |
-| Muevo un eje y responde **otro** | Permutación de ejes: ajusta `AXIS_MAP`. |
-| Un eje gira **al revés** | Ajusta el `SIGN_*` correspondiente (o el prefijo `-` en `AXIS_MAP`). |
-| El yaw se desvía solo con el tiempo | Deriva inherente (sin magnetómetro): llama a `recenter_yaw()`. |
-| `|accel|` en reposo ≠ 1 g | Clon que no respeta ±2g por defecto; el sketch fija los rangos (ver `docs/CONTEXT.md`). |
+| `ERROR opening serial port` | Wrong port in `config.env`, or busy in another app (close the Serial Monitor / `read_serial.py`). |
+| `ModuleNotFoundError: serial` in Blender | `pyserial` installed into the system Python, not Blender's (step 3). |
+| Moved with `_DEFAULTS`, ignored `config.env` | File not found: open the `.py` from disk or use `BLENDER_BRIDGE_CONFIG` (see above). |
+| I move one axis and **another** responds | Axis permutation: adjust `AXIS_MAP`. |
+| An axis rotates **backwards** | Adjust the matching `SIGN_*` (or the `-` prefix in `AXIS_MAP`). |
+| Yaw drifts on its own over time | Inherent drift (no magnetometer): call `recenter_yaw()`. |
+| `|accel|` at rest ≠ 1 g | Clone that ignores the ±2g default; the sketch fixes the ranges (see `docs/CONTEXT.md`). |

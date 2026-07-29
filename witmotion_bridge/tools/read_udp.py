@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-read_udp.py — Lector UDP de diagnóstico (fuera de Blender).
+read_udp.py — UDP diagnostic reader (outside Blender).
 
-Escucha en un puerto UDP y vuelca las tramas que envía el WT901WIFI
-durante N segundos. Es el equivalente de read_serial.py para el sensor
-WiFi: sirve para VERIFICAR el formato real del CSV (orden de campos,
-número de columnas, terminador) ANTES de meterlo en Blender.
+Listens on a UDP port and dumps the frames sent by the WT901WIFI over N
+seconds. It is the read_serial.py equivalent for the WiFi sensor: use it to
+VERIFY the real CSV format (field order, column count, terminator) BEFORE
+feeding it into Blender.
 
-No necesita pyserial ni dependencias externas: solo librería estándar.
+No pyserial or external dependencies needed: standard library only.
 
-Uso:
-    python3 tools/read_udp.py [PUERTO] [SEGUNDOS] [HOST]
+Usage:
+    python3 tools/read_udp.py [PORT] [SECONDS] [HOST]
 
-Por defecto: puerto 1399, 8 s, host 0.0.0.0 (todas las interfaces).
+Defaults: port 1399, 8 s, host 0.0.0.0 (all interfaces).
 
-Qué mirar en la salida:
-    - ¿Cada línea empieza por el DeviceID (algo tipo 'WT53...')?
-    - ¿Cuántos campos hay separados por comas? (esperados: >=10)
-    - ¿En qué posición están los ángulos X,Y,Z? (por defecto índices 7,8,9)
-  Si el orden no coincide con lo esperado, ajusta los IDX_* en
-  blender/config.env — no hay que tocar el código del bridge.
+What to look for in the output:
+    - Does each line start with the DeviceID (something like 'WT53...')?
+    - How many comma-separated fields are there? (expected: >=10)
+    - Which positions hold the X,Y,Z angles? (default indices 7,8,9)
+  If the order doesn't match what's expected, adjust the IDX_* in
+  blender/config.env — no need to touch the bridge code.
 """
 import sys
 import socket
@@ -29,7 +29,7 @@ port = int(sys.argv[1]) if len(sys.argv) > 1 else 1399
 secs = float(sys.argv[2]) if len(sys.argv) > 2 else 8.0
 host = sys.argv[3] if len(sys.argv) > 3 else "0.0.0.0"
 
-print(f"[read_udp] Escuchando UDP en {host}:{port} durante {secs}s...", flush=True)
+print(f"[read_udp] Listening on UDP {host}:{port} for {secs}s...", flush=True)
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -50,8 +50,8 @@ while time.time() < t_end:
             continue
         count += 1
         n_fields = len(line.split(","))
-        # Muestra origen, nº de campos y la línea cruda (útil para depurar).
-        print(f"[{addr[0]}] campos={n_fields:2d} | {line}", flush=True)
+        # Show source, field count and the raw line (useful for debugging).
+        print(f"[{addr[0]}] fields={n_fields:2d} | {line}", flush=True)
 
 sock.close()
-print(f"[read_udp] Fin. {count} líneas recibidas.", flush=True)
+print(f"[read_udp] Done. {count} lines received.", flush=True)

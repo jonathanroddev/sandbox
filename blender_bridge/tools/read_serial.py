@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-read_serial.py — Lector serial de diagnóstico (fuera de Blender).
+read_serial.py — Serial diagnostic reader (outside Blender).
 
-Abre el puerto, opcionalmente resetea la placa por DTR, y vuelca las
-líneas que llegan durante N segundos. Sirve para validar el diagnóstico
-I2C y, más tarde, la salida CSV cruda del sensor.
+Opens the port, optionally resets the board via DTR, and dumps the lines
+received over N seconds. Useful to validate the I2C diagnostics and, later,
+the raw CSV output from the sensor.
 
-Uso:
-    python3 tools/read_serial.py [PUERTO] [SEGUNDOS] [BAUD]
+Usage:
+    python3 tools/read_serial.py [PORT] [SECONDS] [BAUD]
 
-Por defecto: /dev/cu.usbmodem11201, 8 s, 115200 baudios.
+Defaults: /dev/cu.usbmodem11201, 8 s, 115200 baud.
 """
 import sys
 import time
@@ -19,10 +19,10 @@ port = sys.argv[1] if len(sys.argv) > 1 else "/dev/cu.usbmodem11201"
 secs = float(sys.argv[2]) if len(sys.argv) > 2 else 8.0
 baud = int(sys.argv[3]) if len(sys.argv) > 3 else 115200
 
-print(f"[read_serial] Abriendo {port} @ {baud} durante {secs}s...", flush=True)
+print(f"[read_serial] Opening {port} @ {baud} for {secs}s...", flush=True)
 ser = serial.Serial(port, baud, timeout=0.2)
 
-# Reset por DTR (en el Uno, un pulso de DTR reinicia el micro -> re-ejecuta setup())
+# Reset via DTR (on the Uno, a DTR pulse resets the MCU -> re-runs setup())
 ser.setDTR(False)
 time.sleep(0.1)
 ser.setDTR(True)
@@ -36,4 +36,4 @@ while time.time() < t_end:
         print(line, flush=True)
 
 ser.close()
-print("[read_serial] Fin.", flush=True)
+print("[read_serial] Done.", flush=True)
