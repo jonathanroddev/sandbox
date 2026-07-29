@@ -59,7 +59,37 @@ _DEFAULTS = {
     "SIGN_ROLL": "1",
     "SIGN_PITCH": "1",
     "SIGN_YAW": "1",
+    # Permutación de ejes: qué fuente (roll/pitch/yaw) va a cada eje de
+    # Blender, en orden X,Y,Z. Prefijo '-' para invertir. Identidad =
+    # "roll,pitch,yaw" (comportamiento clásico). Ver _parse_axis_map().
+    "AXIS_MAP": "pitch,roll,yaw",
 }
+
+
+def _blender_config_dirs():
+    """Directorios candidatos deducibles del propio Blender.
+
+    Dentro del editor de texto de Blender, `__file__` a menudo NO existe y
+    `os.getcwd()` no apunta a la carpeta del script, así que config.env no se
+    encontraba aunque estuviera "al lado". Aquí recuperamos la carpeta a
+    partir de los datablocks de texto externos abiertos (el .py cargado desde
+    disco expone su `filepath`) y de la ubicación del propio .blend guardado.
+    """
+    dirs = []
+    try:
+        for t in bpy.data.texts:
+            fp = getattr(t, "filepath", "") or ""
+            if fp:
+                d = os.path.dirname(bpy.path.abspath(fp))
+                if d and d not in dirs:
+                    dirs.append(d)
+        if bpy.data.filepath:
+            d = os.path.dirname(bpy.path.abspath(bpy.data.filepath))
+            if d and d not in dirs:
+                dirs.append(d)
+    except Exception:
+        pass  # bpy no disponible o API distinta; se ignora sin romper
+    return dirs
 
 
 def _find_config_path():
@@ -72,6 +102,9 @@ def _find_config_path():
         candidates.append(os.path.join(here, "config.env"))
     except NameError:
         pass  # __file__ no definido (texto sin guardar en el editor de Blender)
+    # Carpetas deducidas de Blender (la vía fiable dentro del editor de texto).
+    for d in _blender_config_dirs():
+        candidates.append(os.path.join(d, "config.env"))
     candidates.append(os.path.join(os.getcwd(), "config.env"))
     for path in candidates:
         if os.path.isfile(path):
@@ -100,6 +133,48 @@ def _load_config():
     return cfg
 
 
+def _parse_axis_map(spec):
+    """Convierte un AXIS_MAP tipo "pitch,-roll,yaw" en una lista de 3
+    tuplas (fuente, signo) para los ejes X, Y, Z de Blender.
+
+    - Exactamente 3 tokens separados por comas.
+    - Cada token es roll/pitch/yaw, opcionalmente con prefijo '+' o '-'.
+    - El '-' invierte ese eje (equivale a multiplicar por -1); se combina
+      con los SIGN_ROLL/PITCH/YAW (que se aplican a la fuente).
+
+    Ejemplos:
+        "roll,pitch,yaw"    -> identidad (clásico): X=roll, Y=pitch, Z=yaw
+        "pitch,roll,yaw"    -> intercambia roll y pitch
+        "roll,pitch,-yaw"   -> como identidad pero yaw invertido
+    Si el spec es inválido, avisa y cae a la identidad.
+    """
+    valid = {"roll", "pitch", "yaw"}
+    identity = [("roll", 1.0), ("pitch", 1.0), ("yaw", 1.0)]
+    tokens = [t.strip().lower() for t in str(spec).split(",")]
+    if len(tokens) != 3:
+        print(f"[bridge] AVISO: AXIS_MAP debe tener 3 ejes, no {len(tokens)} "
+              f"({spec!r}). Usando identidad.")
+        return identity
+    result = []
+    for tok in tokens:
+        sign = 1.0
+        if tok.startswith("-"):
+            sign, tok = -1.0, tok[1:].strip()
+        elif tok.startswith("+"):
+            tok = tok[1:].strip()
+        if tok not in valid:
+            print(f"[bridge] AVISO: fuente de eje inválida en AXIS_MAP: "
+                  f"{tok!r} ({spec!r}). Usando identidad.")
+            return identity
+        result.append((tok, sign))
+    fuentes = [src for src, _ in result]
+    if set(fuentes) != valid:
+        print(f"[bridge] AVISO: AXIS_MAP no usa roll/pitch/yaw exactamente "
+              f"una vez cada uno ({spec!r}). Se aplica igualmente, pero "
+              f"probablemente no es lo que quieres.")
+    return result
+
+
 _cfg = _load_config()
 
 # ---------- CONFIGURACIÓN EFECTIVA ----------
@@ -111,6 +186,9 @@ GYRO_CALIB_SAMPLES = int(_cfg["GYRO_CALIB_SAMPLES"])  # Muestras para el bias de
 SIGN_ROLL = float(_cfg["SIGN_ROLL"])                 # Signo de eje (+1 / -1) según montaje
 SIGN_PITCH = float(_cfg["SIGN_PITCH"])
 SIGN_YAW = float(_cfg["SIGN_YAW"])
+AXIS_MAP = _parse_axis_map(_cfg["AXIS_MAP"])         # Permutación fuente->eje Blender
+print(f"[bridge] AXIS_MAP efectivo (X,Y,Z): "
+      f"{[(s if g > 0 else '-' + s) for s, g in AXIS_MAP]}")
 
 # ---------- ESTADO GLOBAL ----------
 _ser = None
@@ -220,10 +298,17 @@ def _read_serial_and_update():
 
     obj = bpy.data.objects.get(OBJECT_NAME)
     if obj:
+        # 1) Signo por fuente (según montaje). 2) Permutación a ejes de Blender.
+        fuentes = {
+            "roll": SIGN_ROLL * roll,
+            "pitch": SIGN_PITCH * pitch,
+            "yaw": SIGN_YAW * yaw,
+        }
+        (src_x, sg_x), (src_y, sg_y), (src_z, sg_z) = AXIS_MAP
         obj.rotation_euler = (
-            math.radians(SIGN_ROLL * roll),
-            math.radians(SIGN_PITCH * pitch),
-            math.radians(SIGN_YAW * yaw),
+            math.radians(sg_x * fuentes[src_x]),
+            math.radians(sg_y * fuentes[src_y]),
+            math.radians(sg_z * fuentes[src_z]),
         )
 
     return 0.001  # polling continuo
