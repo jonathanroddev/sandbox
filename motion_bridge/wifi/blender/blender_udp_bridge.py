@@ -40,7 +40,14 @@ QUICK USAGE (in Blender's Python console, after Run Script):
     calibrate()         # capture the reference pose NOW (strike the T-pose)
     recenter(device)    # recalibrate one sensor by its DeviceID
     list_devices()      # DeviceIDs seen, their object and their profile
+    show_log()          # show this script's messages inside Blender
     stop_bridge()       # stop and close the socket
+
+WHERE THE MESSAGES GO:
+  Everything is printed to the system console AND mirrored into a Text
+  datablock ("wifi_bridge_log" by default), so you do not need to have
+  launched Blender from a terminal to see what the bridge is doing. Open a
+  Text Editor and pick it from the datablock dropdown, or call show_log().
 
 NOTE ON AXIS MAPPING:
   A sensor's frame does not match Blender's until you account for how it is
@@ -90,7 +97,85 @@ _DEFAULTS = {
     "MIN_FIELDS": "7",
     "ALPHA_ROLL_PITCH": "0.98",
     "GYRO_CALIB_SAMPLES": "50",
+    "LOG_TO_TEXT": "1",
+    "LOG_TEXT_NAME": "wifi_bridge_log",
+    "LOG_MAX_LINES": "500",
 }
+
+# ---------- LOGGING ----------
+# print() inside Blender goes to the SYSTEM CONSOLE, which on macOS/Linux
+# means you only see it if you launched Blender from a terminal (on Windows:
+# Window -> Toggle System Console). That is a poor place for the messages
+# that matter most here — "your sensor arrived and it maps to no object",
+# "keep it still, estimating bias". So every message is ALSO mirrored into a
+# Text datablock you can open in Blender's own Text Editor and watch live.
+#
+# In Blender: Text Editor -> the datablock dropdown -> pick LOG_TEXT_NAME
+# (default "wifi_bridge_log"), or just call show_log() from the console.
+
+# Effective values until config.env is read (logging must work before that).
+LOG_TO_TEXT = _DEFAULTS["LOG_TO_TEXT"] == "1"
+LOG_TEXT_NAME = _DEFAULTS["LOG_TEXT_NAME"]
+LOG_MAX_LINES = int(_DEFAULTS["LOG_MAX_LINES"])
+
+_log_lines = []      # tail of this session's log, oldest first
+_log_ready = False   # True once the real LOG_* values are known
+
+
+def _log(msg):
+    """Print a message to the console AND mirror it inside Blender."""
+    print(f"[wifi-bridge] {msg}")
+    _log_lines.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+    if len(_log_lines) > LOG_MAX_LINES:
+        del _log_lines[:-LOG_MAX_LINES]
+    if _log_ready and LOG_TO_TEXT:
+        _log_flush()
+
+
+def _log_flush():
+    """Rewrite the Text datablock with the current log tail.
+
+    Rewriting rather than appending is deliberate: Text.write() inserts at
+    the CURSOR, so once you click anywhere inside the log in the editor,
+    appended lines would land wherever you left it. Rewriting is immune to
+    that, and at a few dozen messages per session the cost is irrelevant.
+    Never raises: a logging problem must not take the bridge down.
+    """
+    try:
+        txt = bpy.data.texts.get(LOG_TEXT_NAME)
+        if txt is None:
+            txt = bpy.data.texts.new(LOG_TEXT_NAME)
+        txt.clear()
+        txt.write("\n".join(_log_lines) + "\n")
+        txt.current_line_index = max(0, len(txt.lines) - 1)  # follow the tail
+    except Exception as e:
+        print(f"[wifi-bridge] WARNING: could not write the log datablock: {e}")
+
+
+def show_log():
+    """Point an open Text Editor at the log datablock.
+
+    Call it from Blender's Python console. If no Text Editor area is open,
+    it says so instead of failing: split an area into a Text Editor first.
+    """
+    if not LOG_TO_TEXT:
+        print("[wifi-bridge] LOG_TO_TEXT=0 in config.env: nothing is mirrored.")
+        return
+    _log_flush()
+    txt = bpy.data.texts.get(LOG_TEXT_NAME)
+    shown = 0
+    try:
+        for area in bpy.context.screen.areas:
+            if area.type == "TEXT_EDITOR":
+                area.spaces.active.text = txt
+                shown += 1
+    except Exception:
+        pass
+    if shown:
+        print(f"[wifi-bridge] Log shown in {shown} Text Editor area(s).")
+    else:
+        print(f"[wifi-bridge] No Text Editor open. Split an area into one and "
+              f"pick '{LOG_TEXT_NAME}' from its datablock dropdown.")
 
 
 def _blender_config_dirs():
@@ -143,7 +228,7 @@ def _load_config():
     cfg = dict(_DEFAULTS)
     path = _find_config_path()
     if path is None:
-        print("[wifi-bridge] WARNING: config.env not found; using default values.")
+        _log("WARNING: config.env not found; using default values.")
         return cfg
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -153,9 +238,9 @@ def _load_config():
                     continue
                 key, _, value = line.partition("=")
                 cfg[key.strip()] = value.strip()
-        print(f"[wifi-bridge] Config loaded from: {path}")
+        _log(f"Config loaded from: {path}")
     except Exception as e:
-        print(f"[wifi-bridge] WARNING: error reading {path}: {e}. Using defaults.")
+        _log(f"WARNING: error reading {path}: {e}. Using defaults.")
     return cfg
 
 
@@ -192,7 +277,7 @@ def _parse_axis_map(spec):
     identity = [("roll", 1.0), ("pitch", 1.0), ("yaw", 1.0)]
     tokens = [t.strip().lower() for t in str(spec).split(",")]
     if len(tokens) != 3:
-        print(f"[wifi-bridge] WARNING: AXIS_MAP must have 3 axes, not "
+        _log(f"WARNING: AXIS_MAP must have 3 axes, not "
               f"{len(tokens)} ({spec!r}). Using identity.")
         return identity
     result = []
@@ -203,12 +288,12 @@ def _parse_axis_map(spec):
         elif tok.startswith("+"):
             tok = tok[1:].strip()
         if tok not in valid:
-            print(f"[wifi-bridge] WARNING: invalid axis source in AXIS_MAP: "
+            _log(f"WARNING: invalid axis source in AXIS_MAP: "
                   f"{tok!r} ({spec!r}). Using identity.")
             return identity
         result.append((tok, sign))
     if set(src for src, _ in result) != valid:
-        print(f"[wifi-bridge] WARNING: AXIS_MAP does not use roll/pitch/yaw "
+        _log(f"WARNING: AXIS_MAP does not use roll/pitch/yaw "
               f"exactly once each ({spec!r}). Applied anyway, but this is "
               f"probably not what you want.")
     return result
@@ -235,15 +320,23 @@ IDX_ANGLE = (int(_cfg["IDX_ANGLE_X"]), int(_cfg["IDX_ANGLE_Y"]), int(_cfg["IDX_A
 MIN_FIELDS = int(_cfg["MIN_FIELDS"])
 ALPHA_ROLL_PITCH = float(_cfg["ALPHA_ROLL_PITCH"])
 GYRO_CALIB_SAMPLES = int(_cfg["GYRO_CALIB_SAMPLES"])
+LOG_TO_TEXT = _cfg["LOG_TO_TEXT"] == "1"
+LOG_TEXT_NAME = _cfg["LOG_TEXT_NAME"]
+LOG_MAX_LINES = int(_cfg["LOG_MAX_LINES"])
+
+# From here on, everything logged so far can reach the Text datablock too.
+_log_ready = True
+if LOG_TO_TEXT:
+    _log_flush()
 
 # Field count each profile needs, derived from the indices: no second place
 # to keep in sync when someone adjusts an IDX_*.
 _NEED_FUSED = max(IDX_ANGLE) + 1
 _NEED_RAW6 = max(max(IDX_ACC), max(IDX_GYRO)) + 1
 
-print(f"[wifi-bridge] Effective AXIS_MAP (X,Y,Z): "
+_log(f"Effective AXIS_MAP (X,Y,Z): "
       f"{[(s if g > 0 else '-' + s) for s, g in AXIS_MAP]}")
-print(f"[wifi-bridge] Frame format: {FRAME_FORMAT} "
+_log(f"Frame format: {FRAME_FORMAT} "
       f"(fused needs >={_NEED_FUSED} fields, raw6 >={_NEED_RAW6})")
 
 # ---------- GLOBAL STATE ----------
@@ -315,7 +408,7 @@ def _fuse_raw6(device_id, ax, ay, az, gx, gy, gz):
     # --- Startup: estimate the gyro bias while the sensor rests ---
     if not st["ready"]:
         if st["bias_n"] == 0:
-            print(f"[wifi-bridge] '{device_id}': estimating gyro bias, "
+            _log(f"'{device_id}': estimating gyro bias, "
                   f"KEEP IT STILL ({GYRO_CALIB_SAMPLES} samples)...")
         st["bias_sum"][0] += gx
         st["bias_sum"][1] += gy
@@ -325,7 +418,7 @@ def _fuse_raw6(device_id, ax, ay, az, gx, gy, gz):
             n = float(st["bias_n"])
             st["bias"] = [s / n for s in st["bias_sum"]]
             st["ready"] = True
-            print(f"[wifi-bridge] '{device_id}' gyro bias (deg/s): "
+            _log(f"'{device_id}' gyro bias (deg/s): "
                   f"gx={st['bias'][0]:.3f} gy={st['bias'][1]:.3f} "
                   f"gz={st['bias'][2]:.3f}")
         return None
@@ -409,7 +502,7 @@ def _parse_datagram(data):
         _seen_devices[device_id] = profile
         obj = _object_for_device(device_id)
         target = obj.name if obj else "(no object assigned)"
-        print(f"[wifi-bridge] New sensor: {device_id} [{profile}] -> {target}")
+        _log(f"New sensor: {device_id} [{profile}] -> {target}")
 
     if profile == "raw6":
         angles = _fuse_raw6(device_id, accel[0], accel[1], accel[2],
@@ -471,9 +564,9 @@ def calibrate():
         _offsets[device_id] = quat.inverted()
         n += 1
     if n:
-        print(f"[wifi-bridge] Reference pose captured for {n} sensor(s).")
+        _log(f"Reference pose captured for {n} sensor(s).")
     else:
-        print("[wifi-bridge] WARNING: no sensor data yet to calibrate against.")
+        _log("WARNING: no sensor data yet to calibrate against.")
 
 
 def recenter(device_id):
@@ -481,24 +574,24 @@ def recenter(device_id):
     This is also how you cancel the yaw drift of a raw6 sensor."""
     quat = _last_quat.get(device_id)
     if quat is None:
-        print(f"[wifi-bridge] No data from sensor '{device_id}' yet.")
+        _log(f"No data from sensor '{device_id}' yet.")
         return
     _offsets[device_id] = quat.inverted()
-    print(f"[wifi-bridge] Sensor '{device_id}' recentered.")
+    _log(f"Sensor '{device_id}' recentered.")
 
 
 def list_devices():
     """Show the DeviceIDs seen in this session, their profile and object."""
     if not _seen_devices:
-        print("[wifi-bridge] No sensor received yet.")
+        _log("No sensor received yet.")
         return
-    print("[wifi-bridge] Sensors seen:")
+    _log("Sensors seen:")
     for device_id in sorted(_seen_devices):
         obj = _object_for_device(device_id)
         target = obj.name if obj else "(no object)"
         profile = _seen_devices[device_id]
         calib = "yes" if device_id in _offsets else "no"
-        print(f"    {device_id} [{profile}] -> {target}   [calibrated: {calib}]")
+        _log(f"    {device_id} [{profile}] -> {target}   [calibrated: {calib}]")
 
 
 def start_bridge():
@@ -508,21 +601,24 @@ def start_bridge():
         _sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         _sock.bind((LISTEN_HOST, LISTEN_PORT))
         _sock.setblocking(False)
-        print(f"[wifi-bridge] Listening on UDP {LISTEN_HOST}:{LISTEN_PORT}")
+        _log(f"Listening on UDP {LISTEN_HOST}:{LISTEN_PORT}")
     except Exception as e:
-        print(f"[wifi-bridge] ERROR opening UDP socket: {e}")
+        _log(f"ERROR opening UDP socket: {e}")
         _sock = None
         return
 
     if AUTO_CALIBRATE:
         _calib_deadline = time.time() + CALIB_COUNTDOWN
-        print(f"[wifi-bridge] Auto-calibration in {CALIB_COUNTDOWN:.0f}s: "
+        _log(f"Auto-calibration in {CALIB_COUNTDOWN:.0f}s: "
               f"place the sensor(s) in the reference pose (T-pose).")
 
     if not bpy.app.timers.is_registered(_pump):
         bpy.app.timers.register(_pump)
-    print("[wifi-bridge] Bridge started. Move the sensor to see the object react.")
-    print("[wifi-bridge] Use calibrate() to set zero, list_devices() to see sensors.")
+    _log("Bridge started. Move the sensor to see the object react.")
+    _log("Use calibrate() to set zero, list_devices() to see sensors.")
+    if LOG_TO_TEXT:
+        _log(f"These messages are also in the '{LOG_TEXT_NAME}' text "
+             f"datablock — open a Text Editor or call show_log().")
 
 
 def stop_bridge():
@@ -532,7 +628,7 @@ def stop_bridge():
     if _sock is not None:
         _sock.close()
         _sock = None
-    print("[wifi-bridge] Bridge stopped.")
+    _log("Bridge stopped.")
 
 
 # When running the script directly in Blender, start the bridge.

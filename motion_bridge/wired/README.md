@@ -103,8 +103,19 @@ Control from Blender's **Python console**:
 start_bridge()    # start (calibrates the gyro bias at rest)
 recenter_yaw()    # set the current yaw to 0 (cancels accumulated drift)
 recenter_all()    # set roll/pitch/yaw to 0
+show_log()        # show the bridge's messages inside Blender
 stop_bridge()     # stop and close the port
 ```
+
+### Seeing the bridge's messages
+
+`print()` inside Blender goes to the **system console**, which you only see
+if you launched Blender from a terminal (on Windows: Window → Toggle System
+Console). Everything is therefore **also mirrored into a Text datablock**:
+open a Text Editor and pick `wired_bridge_log` from its datablock dropdown,
+or call `show_log()` to point an already-open one at it. Configurable with
+`LOG_TO_TEXT` / `LOG_TEXT_NAME` / `LOG_MAX_LINES` in `config.env` (it keeps
+the last 500 lines).
 
 ## Axis mapping calibration
 

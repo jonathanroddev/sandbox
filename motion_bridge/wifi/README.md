@@ -71,8 +71,20 @@ start_bridge()      # open the socket and start listening
 calibrate()         # capture the reference pose NOW (strike the T-pose)
 recenter(device_id) # re-zero one sensor (also cancels raw6 yaw drift)
 list_devices()      # DeviceIDs seen, their profile and their object
+show_log()          # show the bridge's messages inside Blender
 stop_bridge()       # stop and close the socket
 ```
+
+### Seeing the bridge's messages
+
+`print()` inside Blender goes to the **system console**, which you only see
+if you launched Blender from a terminal (on Windows: Window → Toggle System
+Console). Since the messages that matter most arrive exactly when you are
+holding a sensor and not watching a terminal, everything is **also mirrored
+into a Text datablock**: open a Text Editor and pick `wifi_bridge_log` from
+its datablock dropdown, or call `show_log()` to point an already-open one at
+it. Configurable with `LOG_TO_TEXT` / `LOG_TEXT_NAME` / `LOG_MAX_LINES` in
+`config.env` (it keeps the last 500 lines).
 
 ## Multi-sensor
 

@@ -20,6 +20,9 @@ WitMotion WT901WIFI). Same conventions, deliberately separate code.
   board). Never commit an SSID, a password or a LAN IP.
 - Code, comments and user-facing messages **in English**.
 - Blender code must not block the UI: `bpy.app.timers`.
+- **User-facing messages go through `_log()`**, never bare `print()`: it
+  mirrors them into a Text datablock so they are visible from inside
+  Blender, not only in a system console the user may not have open.
 - **Standard library + `mathutils` only** (`pyserial` in `wired/` is the
   one exception). Justify any new dependency.
 - Each Blender script stays **one self-contained file** — see
