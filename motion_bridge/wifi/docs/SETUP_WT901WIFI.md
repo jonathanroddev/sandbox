@@ -2,7 +2,7 @@
 
 Guide to resume work **with the sensor in hand**, meant to continue from the
 work PC (Fedora + a Windows VM for WitMotion's official tool). It complements
-`CONTEXT.md` (decisions and protocol) and `../CLAUDE.md` (task order).
+`CONTEXT.md` (decisions and protocol) and `../../CLAUDE.md` (task order).
 
 > **Status at time of writing (2026-07-20):** the software pipeline is
 > **validated end-to-end** on the development Mac with `fake_sensor.py` →
@@ -49,7 +49,7 @@ Do this **first** on the new PC: confirm that Python + sockets + parsing work
 there, to isolate any later failure as "network/sensor".
 
 ```bash
-cd witmotion_bridge
+cd motion_bridge/wifi
 # Terminal 1 — listen for 4 s
 python3 tools/read_udp.py 1399 4
 # Terminal 2 — emit fake frames for 3 s to localhost
@@ -117,7 +117,7 @@ The sensor ships in **AP mode** (creates its network). We want it in
 With the sensor on your network and transmitting:
 
 ```bash
-cd witmotion_bridge
+cd motion_bridge/wifi
 python3 tools/read_udp.py 1399 10
 ```
 

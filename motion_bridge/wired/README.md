@@ -1,4 +1,4 @@
-# Blender Bridge — Arduino (MPU-6050) → Blender
+# wired — Arduino (MPU-6050) → Blender, over USB serial
 
 Real-time bridge that reads orientation from an **MPU-6050** motion sensor
 wired to an **Arduino Uno** over USB and applies it to an object in a
@@ -11,13 +11,14 @@ wired to an **Arduino Uno** over USB and applies it to an object in a
 - **Position**: out of scope.
 
 Full technical context and architecture decisions: [`docs/CONTEXT.md`](docs/CONTEXT.md).
-Hardware and its setup: [`docs/SETUP_HARDWARE.md`](docs/SETUP_HARDWARE.md).
+The shared frame protocol and how this bridge relates to the WiFi one:
+[`../docs/CONTEXT.md`](../docs/CONTEXT.md).
 
 ## Layout
 
 ```
-blender_bridge/
-├── arduino/
+wired/
+├── firmware/
 │   ├── mpu_serial_bridge/   Main sketch: reads accel+gyro and emits CSV
 │   └── i2c_diag/            I2C diagnostics (WHO_AM_I, bus scan)
 ├── blender/
@@ -42,8 +43,8 @@ ax,ay,az,gx,gy,gz        # accel in g, gyro in deg/s
 With `arduino-cli` (the `arduino:avr` core installed):
 
 ```bash
-arduino-cli compile --fqbn arduino:avr:uno arduino/mpu_serial_bridge
-arduino-cli upload -p /dev/cu.usbmodem11201 --fqbn arduino:avr:uno arduino/mpu_serial_bridge
+arduino-cli compile --fqbn arduino:avr:uno firmware/mpu_serial_bridge
+arduino-cli upload -p /dev/cu.usbmodem11201 --fqbn arduino:avr:uno firmware/mpu_serial_bridge
 ```
 
 Adjust the port for your system:
@@ -147,7 +148,7 @@ X/Y/Z slot of `AXIS_MAP`. If it shows up inverted, add the `-`.
 
 The script looks for `config.env` in this order:
 
-1. Absolute path in the `BLENDER_BRIDGE_CONFIG` environment variable, if set.
+1. Absolute path in the `WIRED_BRIDGE_CONFIG` environment variable, if set.
 2. Next to the `.py` (when `__file__` is defined).
 3. **Folders inferred from Blender**: that of the `.py` opened as an external
    text and that of the saved `.blend`.
@@ -162,7 +163,7 @@ The script looks for `config.env` in this order:
 > path before launching Blender:
 >
 > ```bash
-> export BLENDER_BRIDGE_CONFIG=/absolute/path/to/blender_bridge/blender/config.env
+> export WIRED_BRIDGE_CONFIG=/absolute/path/to/motion_bridge/wired/blender/config.env
 > ```
 
 ## Troubleshooting
@@ -171,7 +172,7 @@ The script looks for `config.env` in this order:
 |---|---|
 | `ERROR opening serial port` | Wrong port in `config.env`, or busy in another app (close the Serial Monitor / `read_serial.py`). |
 | `ModuleNotFoundError: serial` in Blender | `pyserial` installed into the system Python, not Blender's (step 3). |
-| Moved with `_DEFAULTS`, ignored `config.env` | File not found: open the `.py` from disk or use `BLENDER_BRIDGE_CONFIG` (see above). |
+| Moved with `_DEFAULTS`, ignored `config.env` | File not found: open the `.py` from disk or use `WIRED_BRIDGE_CONFIG` (see above). |
 | I move one axis and **another** responds | Axis permutation: adjust `AXIS_MAP`. |
 | An axis rotates **backwards** | Adjust the matching `SIGN_*` (or the `-` prefix in `AXIS_MAP`). |
 | Yaw drifts on its own over time | Inherent drift (no magnetometer): call `recenter_yaw()`. |

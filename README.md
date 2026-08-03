@@ -13,7 +13,7 @@ setup and (where useful) documentation.
 | Folder | What it does |
 | --- | --- |
 | [`folder_backup/`](folder_backup/) | Scheduled daily backup of a directory into a ZIP on a OneDrive folder, keeping only the 3 most recent backups and emailing on failure. Python (`schedule`, `yagmail`). |
-| [`blender_bridge/`](blender_bridge/) | Real-time bridge from an Arduino motion sensor (MPU-6050) to Blender: streams orientation over USB serial and drives an object's rotation. Arduino sketch + Blender Python script. |
+| [`motion_bridge/`](motion_bridge/) | Real-time bridges from IMU motion sensors to Blender: one sensor over USB serial, and one-or-many sensors over WiFi/UDP (the path to a motion capture suit). Arduino/ESP sketches + Blender Python scripts. |
 
 ## Layout convention
 
@@ -22,14 +22,17 @@ Each project is a top-level folder that can be copied out and used on its own:
 ```
 sandbox/
 ├── folder_backup/       # backup utility + its README
-└── blender_bridge/      # Arduino → Blender orientation bridge
-    ├── arduino/         # Arduino sketches (main bridge + I2C diagnostic)
-    ├── blender/         # Blender-side Python script + config.env
-    ├── tools/           # host-side helper scripts (serial reader)
-    ├── docs/            # CONTEXT.md — hardware notes and decisions
-    └── backups/         # original board flash/EEPROM dumps
+└── motion_bridge/       # IMU sensors → Blender
+    ├── docs/            # shared architecture + the sensor frame protocol
+    ├── wired/           # 1 sensor  · USB serial (Arduino Uno + MPU-6050)
+    └── wifi/            # 1..N sensors · UDP (Arduino/ESP boards, WT901WIFI)
 ```
+
+`motion_bridge/` is the one project with sub-projects: `wired/` and `wifi/`
+are two developments that share conventions and a documented frame format,
+but no code. Each subfolder has the usual `firmware/`, `blender/`, `tools/`
+and `docs/` split.
 
 Per-project setup, requirements and usage live inside each folder — see
 [`folder_backup/README.md`](folder_backup/README.md) and
-[`blender_bridge/docs/CONTEXT.md`](blender_bridge/docs/CONTEXT.md).
+[`motion_bridge/README.md`](motion_bridge/README.md).

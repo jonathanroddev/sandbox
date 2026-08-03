@@ -28,11 +28,11 @@ it in real time to an object in Blender, over serial USB.
   acceleration, with unacceptable drift without an external reference).
 
 ## Files
-- `arduino/mpu_serial_bridge/mpu_serial_bridge.ino` — Main sketch. Reads
+- `firmware/mpu_serial_bridge/mpu_serial_bridge.ino` — Main sketch. Reads
   accel+gyro from the MPU-6050 over I2C and sends them over Serial as CSV:
   `ax,ay,az,gx,gy,gz` (accel in g, gyro in deg/s). Sets the ranges
   explicitly (±2g / ±250°/s).
-- `arduino/i2c_diag/i2c_diag.ino` — Diagnostic sketch (moves nothing). Scans
+- `firmware/i2c_diag/i2c_diag.ino` — Diagnostic sketch (moves nothing). Scans
   the I2C bus and reads the WHO_AM_I registers. Useful to re-validate the
   hardware if something stops working. Repeats in loop() every 3s.
 - `blender/blender_serial_bridge.py` — Script to run inside Blender. Reads
@@ -42,7 +42,7 @@ it in real time to an object in Blender, over serial USB.
   `KEY=value` format (.env style) read with no external dependencies
   (Blender's Python has no python-dotenv). Contains `SERIAL_PORT`,
   `OBJECT_NAME`, `ALPHA_ROLL_PITCH`, axis signs, etc. The script looks it up
-  via the `BLENDER_BRIDGE_CONFIG` env var, then next to the script, then in
+  via the `WIRED_BRIDGE_CONFIG` env var, then next to the script, then in
   the cwd; if not found it uses internal default values.
 - `tools/read_serial.py` — Diagnostic serial reader (system Python, with
   pyserial). Resets the board via DTR and dumps N seconds of lines. To
@@ -70,8 +70,8 @@ Toolchain: `arduino-cli` (no IDE), `arduino:avr` core installed.
 
 1. Compile/flash the sketch:
    ```
-   arduino-cli compile --fqbn arduino:avr:uno arduino/mpu_serial_bridge
-   arduino-cli upload -p /dev/cu.usbmodem11201 --fqbn arduino:avr:uno arduino/mpu_serial_bridge
+   arduino-cli compile --fqbn arduino:avr:uno firmware/mpu_serial_bridge
+   arduino-cli upload -p /dev/cu.usbmodem11201 --fqbn arduino:avr:uno firmware/mpu_serial_bridge
    ```
 2. Verify the raw CSV (6 values, |accel|≈1g at rest):
    ```

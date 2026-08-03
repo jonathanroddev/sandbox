@@ -45,7 +45,7 @@ import os
 # ---------- CONFIGURATION LOADING (config.env) ----------
 # Everything that usually changes between PCs/scenes lives in config.env,
 # not here. The file is resolved, in order:
-#   1) the BLENDER_BRIDGE_CONFIG environment variable (absolute path), if set.
+#   1) the WIRED_BRIDGE_CONFIG environment variable (absolute path), if set.
 #   2) config.env next to this script (when __file__ is defined).
 #   3) config.env in the current working directory.
 # If none is found, the _DEFAULTS values below are used.
@@ -93,7 +93,7 @@ def _blender_config_dirs():
 
 
 def _find_config_path():
-    env = os.environ.get("BLENDER_BRIDGE_CONFIG")
+    env = os.environ.get("WIRED_BRIDGE_CONFIG")
     if env and os.path.isfile(env):
         return env
     candidates = []
