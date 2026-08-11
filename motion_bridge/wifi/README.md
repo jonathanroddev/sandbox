@@ -9,7 +9,7 @@ One Blender script serves every sensor, whatever it sends:
 | Sensor | Frame | Fusion | Rate |
 |---|---|---|---|
 | **ESP32 + MPU-6050** | `raw6`, 7 fields | Done here (complementary filter) | 100 Hz |
-| **Arduino Uno + ESP-01** | `raw6`, 7 fields | Done here | ~20 Hz |
+| **Arduino Nano/Uno + ESP-01** | `raw6`, 7 fields | Done here | ~20 Hz |
 | **WitMotion WT901WIFI** | `fused`, 13 fields | Internal (its own Kalman) | up to 200 Hz |
 
 The receiver tells them apart by field count, keeps per-device fusion state
@@ -26,7 +26,7 @@ wifi/
 │   └── config.env              # all configuration (port, mapping, axes, indices)
 ├── firmware/
 │   ├── mpu_wifi_esp32/         # ESP32 + MPU-6050 (recommended)
-│   └── mpu_wifi_uno_esp01/     # Arduino Uno + ESP-01 via AT commands
+│   └── mpu_wifi_avr_esp01/     # any 5V 328P board + ESP-01 via AT commands
 ├── tools/
 │   ├── read_udp.py             # UDP diagnostic reader (outside Blender)
 │   └── fake_sensor.py          # fake emitter, both profiles (test without hardware)

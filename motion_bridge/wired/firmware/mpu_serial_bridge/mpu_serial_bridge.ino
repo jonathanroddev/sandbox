@@ -15,7 +15,7 @@
     integrated from the gyroscope and will therefore drift over time.
     Roll and pitch ARE absolute (gravity reference) and stable.
 
-  I2C wiring (Arduino Uno, GY-521 / MPU-6050 module):
+  I2C wiring (Arduino Nano, GY-521 / MPU-6050 module):
     VCC -> 5V (the GY-521 has an on-board 3.3V regulator)
     GND -> GND
     SCL -> A5

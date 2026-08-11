@@ -58,7 +58,10 @@ import os
 # If none is found, the _DEFAULTS values below are used.
 
 _DEFAULTS = {
-    "SERIAL_PORT": "/dev/cu.usbmodem11201",
+    # Placeholder on purpose: the Nano's port depends on its USB-serial chip
+    # (wchusbserial/usbserial on macOS, ttyUSB on Linux) and is not known
+    # until the board is plugged in. Set the real one in config.env.
+    "SERIAL_PORT": "/dev/cu.wchusbserial-CHANGE_ME",
     "BAUD_RATE": "115200",
     "OBJECT_NAME": "Cube",
     "ALPHA_ROLL_PITCH": "0.98",

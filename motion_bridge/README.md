@@ -7,9 +7,9 @@ genuinely different problems:
 | | [`wired/`](wired/) | [`wifi/`](wifi/) |
 |---|---|---|
 | **Sensors** | Exactly **one** | **One or many** |
-| **Hardware** | Arduino Uno + MPU-6050 | Arduino Uno + ESP-01, ESP32 + MPU-6050, WitMotion WT901WIFI |
+| **Hardware** | Arduino Nano + MPU-6050 | Arduino Nano/Uno + ESP-01, ESP32 + MPU-6050, WitMotion WT901WIFI |
 | **Transport** | USB serial (`pyserial`) | WiFi / UDP (stdlib only) |
-| **Rate** | ~50 Hz | 20 Hz (Uno+ESP-01) · 100–200 Hz (ESP32, WT901) |
+| **Rate** | ~50 Hz | 20 Hz (Nano+ESP-01) · 100–200 Hz (ESP32, WT901) |
 | **Use it for** | Bench work: one sensor, no network, nothing to configure | Anything untethered, and the multi-sensor capture suit |
 
 Both apply the same idea — read orientation, map the sensor's axes onto
@@ -40,9 +40,9 @@ motion_bridge/
 │   ├── blender/        Script to run inside Blender + config.env
 │   ├── tools/          read_serial.py (diagnostics outside Blender)
 │   ├── docs/           Hardware notes and decisions
-│   └── backups/        The Uno's original flash/EEPROM dumps
+│   └── backups/        The old Uno's flash/EEPROM dumps (not the Nano's)
 └── wifi/               1..N sensors · UDP
-    ├── firmware/       mpu_wifi_uno_esp01/ · mpu_wifi_esp32/
+    ├── firmware/       mpu_wifi_avr_esp01/ · mpu_wifi_esp32/
     ├── blender/        Script to run inside Blender + config.env
     ├── tools/          read_udp.py · fake_sensor.py (test without hardware)
     └── docs/           Per-sensor setup guides and decisions

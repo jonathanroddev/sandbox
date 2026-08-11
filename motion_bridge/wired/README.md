@@ -1,7 +1,7 @@
 # wired — Arduino (MPU-6050) → Blender, over USB serial
 
 Real-time bridge that reads orientation from an **MPU-6050** motion sensor
-wired to an **Arduino Uno** over USB and applies it to an object in a
+wired to an **Arduino Nano** over USB and applies it to an object in a
 **Blender** scene (roll/pitch/yaw).
 
 - **Roll and pitch**: absolute and stable (accelerometer + gyroscope with a
@@ -26,7 +26,7 @@ wired/
 │   └── config.env                 The ONLY file you usually touch
 ├── tools/
 │   └── read_serial.py       Serial diagnostic dump (system Python)
-├── backups/                 Backup of the Uno's original flash/EEPROM
+├── backups/                 The Uno's original flash/EEPROM (see docs)
 └── docs/                    Context and hardware setup
 ```
 
@@ -43,13 +43,18 @@ ax,ay,az,gx,gy,gz        # accel in g, gyro in deg/s
 With `arduino-cli` (the `arduino:avr` core installed):
 
 ```bash
-arduino-cli compile --fqbn arduino:avr:uno firmware/mpu_serial_bridge
-arduino-cli upload -p /dev/cu.usbmodem11201 --fqbn arduino:avr:uno firmware/mpu_serial_bridge
+arduino-cli compile --fqbn arduino:avr:nano firmware/mpu_serial_bridge
+arduino-cli upload -p $PORT --fqbn arduino:avr:nano firmware/mpu_serial_bridge
 ```
 
-Adjust the port for your system:
-- macOS: `ls /dev/cu.*` → e.g. `/dev/cu.usbmodem11201`
-- Linux: `ls /dev/ttyACM* /dev/ttyUSB*` → e.g. `/dev/ttyACM0`
+If the upload fails with `not in sync` / `stk500_recv`, the clone has the
+old bootloader: use `arduino:avr:nano:cpu=atmega328old` in **both** lines.
+
+Find `$PORT` on your system. The Nano talks through a USB-serial chip, so
+it is **not** a `usbmodem` name:
+- macOS: `ls /dev/cu.*` → `/dev/cu.wchusbserial*` (CH340) or
+  `/dev/cu.usbserial-*` (FTDI). List it unplugged and plugged in to be sure.
+- Linux: `ls /dev/ttyUSB*` → e.g. `/dev/ttyUSB0`
 - Windows: Device Manager → e.g. `COM3`
 
 ### 2. Verify the raw CSV (without Blender)
@@ -57,7 +62,7 @@ Adjust the port for your system:
 With the **system Python** (needs `pyserial`):
 
 ```bash
-python3 tools/read_serial.py /dev/cu.usbmodem11201 6 115200
+python3 tools/read_serial.py $PORT 6 115200
 ```
 
 You should see 6 values per line and, with the sensor still, `|accel| ≈ 1.0 g`.

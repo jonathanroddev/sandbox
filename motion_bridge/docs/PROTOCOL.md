@@ -15,7 +15,7 @@ unit    string    g   g   g    °/s °/s °/s   deg    deg    deg    (raw)
 
 | Profile | Fields | Who emits it | What the receiver does |
 |---|---|---|---|
-| `raw6` | 7 (`0..6`) | `mpu_wifi_uno_esp01`, `mpu_wifi_esp32` | Sensor fusion **here** (complementary filter), per device |
+| `raw6` | 7 (`0..6`) | `mpu_wifi_avr_esp01`, `mpu_wifi_esp32` | Sensor fusion **here** (complementary filter), per device |
 | `fused` | 13 (`0..12`) | WitMotion WT901WIFI | Uses `angX/Y/Z` directly (fused by the sensor's Kalman) |
 
 `raw6` is deliberately a **prefix** of the WitMotion layout: the same
@@ -55,7 +55,7 @@ a deviceId there — the transport already identifies the device.
 
 | Source | Realistic rate | Why |
 |---|---|---|
-| `mpu_wifi_uno_esp01` | ~20 Hz | SoftwareSerial + AT commands is the bottleneck (see its README) |
+| `mpu_wifi_avr_esp01` | ~20 Hz | SoftwareSerial + AT commands is the bottleneck (see its README) |
 | `mpu_wifi_esp32` | 100–200 Hz | Native WiFi, no intermediary |
 | WT901WIFI | up to 200 Hz | Configured from WitMotion's tool |
 | `wired` (serial) | ~50 Hz | `delay(20)` in the sketch, 115200 baud |

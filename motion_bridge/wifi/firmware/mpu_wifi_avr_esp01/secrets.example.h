@@ -28,4 +28,4 @@
 // ---- Identity of THIS board ----
 // No commas, no spaces (it is the first CSV field). Use something you will
 // recognise when it shows up in list_devices(), e.g. ARM_L, ARM_R, SPINE.
-#define DEVICE_ID "UNO_A"
+#define DEVICE_ID "NANO_A"

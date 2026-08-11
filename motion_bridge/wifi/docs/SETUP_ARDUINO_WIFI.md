@@ -12,18 +12,19 @@ far fewer ways to fail.
 
 ## 0. First: which board?
 
-| | **ESP32 + MPU-6050** | **Uno + ESP-01S + MPU-6050** |
+| | **ESP32 + MPU-6050** | **Nano/Uno + ESP-01S + MPU-6050** |
 |---|---|---|
 | Rate | 100 Hz (200 possible) | ~20 Hz |
-| Logic levels | 3.3V throughout, MPU wired directly | Uno is 5V, ESP-01 is 3.3V → **level shifter required** |
-| Power | Single 3.3V rail on the board | ESP-01 peaks ~300 mA; the Uno's 3.3V regulator gives ~50 mA → **separate supply required** |
+| Logic levels | 3.3V throughout, MPU wired directly | the 328P board is 5V, ESP-01 is 3.3V → **level shifter required** |
+| Power | Single 3.3V rail on the board | ESP-01 peaks ~300 mA; the Uno's 3.3V regulator gives ~50 mA and the Nano has none at all → **separate supply required** |
 | Parts | 1 board | 1 board + module + shifter + regulator + capacitor |
-| Cost | ~5–8 € | Uno (owned) + ~3 € + extras |
+| Cost | ~5–8 € | board (owned) + ~3 € + extras |
 | Battery-powered for a suit | Straightforward | Awkward (two rails) |
 
-The Uno + ESP-01 path exists because the Uno is already here. For anything
-beyond a first test — and certainly for a suit of several sensors — the
-ESP32 is both simpler and cheaper.
+The 328P + ESP-01 path exists because the board is already here (a Nano;
+the same sketch takes an Uno with a different FQBN). For anything beyond a
+first test — and certainly for a suit of several sensors — the ESP32 is
+both simpler and cheaper.
 
 **Whatever you buy, check it is 2.4 GHz** (all of this hardware is) and that
 your router exposes a 2.4 GHz SSID: none of these radios can see 5 GHz.
@@ -105,11 +106,16 @@ line every 5 s with the frame count and the last frame sent.
 
 ---
 
-## 3B. Arduino Uno + ESP-01S
+## 3B. Arduino Nano (or Uno) + ESP-01S
+
+Written for the Nano, which is the board this project has. The sketch is
+board-agnostic: on an Uno, swap the FQBN for `arduino:avr:uno` and expect a
+`/dev/cu.usbmodem*` port. Everything else — pins, wiring, AT flow — is
+identical.
 
 ### Prepare the module first (once)
 
-SoftwareSerial on an Uno cannot keep up with the ESP-01's factory 115200
+SoftwareSerial on a 328P cannot keep up with the ESP-01's factory 115200
 baud. Talk to the module with a USB-TTL adapter and drop it to 9600
 **before** using it with this sketch:
 
@@ -126,25 +132,31 @@ nothing without it), and that your supply is not browning out.
 
 | Signal | Connection |
 |---|---|
-| MPU VCC | Uno 5V (the GY-521 has its own regulator) |
+| MPU VCC | Nano 5V (the GY-521 has its own regulator) |
 | MPU GND / SCL / SDA | GND / A5 / A4 |
 | ESP-01 VCC | **Separate 3.3V supply** (~300 mA peaks), 100 µF cap nearby |
-| ESP-01 GND | GND, **common with the Uno** |
+| ESP-01 GND | GND, **common with the Nano** |
 | ESP-01 CH_PD | 3.3V |
-| ESP-01 TX | Uno pin 2 (3.3V out is safe for a 5V input) |
-| ESP-01 RX | Uno pin 3 **through a level shifter** (or 1 kΩ series + 2 kΩ to GND) |
+| ESP-01 TX | Nano pin 2 (3.3V out is safe for a 5V input) |
+| ESP-01 RX | Nano pin 3 **through a level shifter** (or 1 kΩ series + 2 kΩ to GND) |
 
-> Wiring the Uno's 5V TX straight into the ESP-01's RX is the classic way
+> Wiring the Nano's 5V TX straight into the ESP-01's RX is the classic way
 > to kill the module. Do not skip the divider.
 
 ### Flash
 
 ```bash
-cd motion_bridge/wifi/firmware/mpu_wifi_uno_esp01
+cd motion_bridge/wifi/firmware/mpu_wifi_avr_esp01
 cp secrets.example.h secrets.h     # then edit: SSID, password, DEST_IP, DEVICE_ID
-arduino-cli compile --fqbn arduino:avr:uno .
-arduino-cli upload -p /dev/cu.usbmodem11201 --fqbn arduino:avr:uno .
+arduino-cli compile --fqbn arduino:avr:nano .
+arduino-cli upload -p $PORT --fqbn arduino:avr:nano .
 ```
+
+`$PORT` is the Nano's: `/dev/cu.wchusbserial*` (CH340) or
+`/dev/cu.usbserial-*` (FTDI), found with `ls /dev/cu.*` — **not** a
+`usbmodem` name. If the upload fails with `not in sync` / `stk500_recv`, the
+clone has the old bootloader: use `arduino:avr:nano:cpu=atmega328old` in
+both commands.
 
 ### Verify
 Open the USB serial monitor at 115200: the sketch echoes every AT exchange,
@@ -167,7 +179,7 @@ the whole chain. If |accel| is far from 1 g, the range registers did not
 take (see `../../docs/CONTEXT.md`, decision 5).
 
 Count the lines to measure the real rate: 10 s should give ~1000 lines from
-an ESP32, ~200 from an Uno + ESP-01.
+an ESP32, ~200 from a Nano + ESP-01.
 
 ---
 

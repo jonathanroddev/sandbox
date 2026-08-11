@@ -21,17 +21,20 @@ target is a motion capture suit.
 - Internal battery, ~3 h depending on data rate.
 - Emits the **`fused`** profile: 13 fields including angles.
 
-### Arduino Uno + ESP-01 (ESP8266)
-- The "use the Uno we already have" option. Works, but it is the weakest
-  path: 3.3V logic needing level shifting, a module whose current peaks the
-  Uno's regulator cannot supply, and AT commands over SoftwareSerial
+### 5V ATmega328P Arduino + ESP-01 (ESP8266)
+- The "use the board we already have" option — a **Nano** here, but the
+  sketch is board-agnostic and an Uno needs only a different FQBN. Works,
+  but it is the weakest path: 3.3V logic needing level shifting, a module
+  whose current peaks neither board's 3.3V rail can supply (the Uno's
+  regulator is rated ~50 mA; the Nano has no regulator at all, its 3V3 pin
+  hangs off the USB-serial chip), and AT commands over SoftwareSerial
   capping the rate at roughly 20 Hz.
 - Emits the **`raw6`** profile: this board does no fusion.
 
 ### ESP32 (or ESP8266 D1 mini) + MPU-6050
 - Native WiFi, 3.3V I2C straight to the MPU, no intermediary: 100 Hz is
   comfortable. For a suit — several boards, each battery-powered — this is
-  the sane choice, and it is cheaper than an Uno plus a module.
+  the sane choice, and it is cheaper than a 328P board plus a module.
 - Also emits **`raw6`**.
 
 ## Decisions
@@ -79,7 +82,7 @@ target is a motion capture suit.
   fuses `raw6` per device, applies the axis map, the calibration offset and
   the resulting quaternion to the object.
 - `blender/config.env` — everything configurable.
-- `firmware/mpu_wifi_esp32/`, `firmware/mpu_wifi_uno_esp01/` — the two
+- `firmware/mpu_wifi_esp32/`, `firmware/mpu_wifi_avr_esp01/` — the two
   Arduino-family senders. Each needs a `secrets.h` (copy the example).
 - `tools/read_udp.py` — dump raw frames outside Blender. Always the first
   thing to run when something is silent.
@@ -97,7 +100,7 @@ target is a motion capture suit.
 - [ ] **Map to an armature**: apply each quaternion to the corresponding
       `pose.bones[...]`, resolving each bone's orientation relative to its
       parent. This is the heart of the suit.
-- [ ] Measure the Uno + ESP-01's real rate; decide whether it is usable or
+- [ ] Measure the Nano + ESP-01's real rate; decide whether it is usable or
       whether the suit is ESP32-only.
 - [ ] Use the WT901WIFI's **native quaternion** if its firmware includes one
       (removes the Euler-order ambiguity entirely).

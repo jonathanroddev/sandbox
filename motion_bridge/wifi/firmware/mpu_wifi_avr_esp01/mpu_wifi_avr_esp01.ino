@@ -1,50 +1,65 @@
 /*
-  mpu_wifi_uno_esp01.ino
-  -----------------------
-  Arduino Uno + MPU-6050 (I2C) + ESP-01/ESP-01S (ESP8266) driven by AT
-  commands over SoftwareSerial. Sends the `raw6` profile of the shared frame
-  protocol (see ../../../docs/PROTOCOL.md) as UDP datagrams:
+  mpu_wifi_avr_esp01.ino
+  ------------------------
+  A 5V ATmega328P Arduino + MPU-6050 (I2C) + ESP-01/ESP-01S (ESP8266)
+  driven by AT commands over SoftwareSerial. Sends the `raw6` profile of the
+  shared frame protocol (see ../../../docs/PROTOCOL.md) as UDP datagrams:
 
       deviceId,ax,ay,az,gx,gy,gz\r\n
 
-  This is the "keep the Uno we already have" path. It works, but read the
-  limits before wiring anything:
+  BOARD-AGNOSTIC ON PURPOSE. Nothing below depends on which 328P board this
+  is: D2/D3, A4/A5 and Serial are the same on a Nano and on an Uno, and the
+  board is chosen by the FQBN at build time, not by the code. The project's
+  board is a **Nano**; an Uno works with `arduino:avr:uno` and no edits. The
+  one place they really differ is POWER, flagged below.
+
+  This is the "keep the 328P board we already have" path. It works, but read
+  the limits before wiring anything:
 
     * RATE ~20 Hz. Every frame costs an `AT+CIPSEND=<n>` round trip at 9600
       baud over SoftwareSerial. The ESP32 sketch next door does 100 Hz.
-    * LOGIC LEVELS. The ESP-01 is 3.3V and is NOT 5V tolerant. The Uno's TX
-      (pin 3 here) MUST go through a level shifter or a divider before
+    * LOGIC LEVELS. The ESP-01 is 3.3V and is NOT 5V tolerant. The board's
+      TX (pin 3 here) MUST go through a level shifter or a divider before
       reaching the ESP-01 RX. Wiring it directly will damage the module.
-    * POWER. The ESP-01 draws ~300 mA peaks on transmit. The Uno's on-board
-      3.3V regulator supplies ~50 mA and will brown the module out (random
-      resets, "no AT response"). Use a separate 3.3V supply (e.g. an
-      AMS1117 module off the Uno's 5V) with a 100 uF cap near the ESP-01,
-      GND common with the Uno.
+    * POWER — the one real Nano/Uno difference. The ESP-01 draws ~300 mA
+      peaks on transmit, and neither board's 3.3V rail can feed it:
+        - Uno: a real 3.3V regulator, but rated ~50 mA.
+        - Nano: NO regulator at all. Its 3V3 pin hangs off the USB-serial
+          chip (~50 mA on an FT232RL; many CH340 clones barely drive it).
+      Either way the module browns out (random resets, "no AT response"),
+      but on the Nano there is nothing to brown out in the first place. A
+      separate 3.3V supply is mandatory, not a precaution: an AMS1117 module
+      off the board's 5V with a 100 uF cap near the ESP-01, GND common.
     * SoftwareSerial cannot keep up with the ESP-01's factory 115200 baud.
       You MUST drop the module to 9600 first — see PREPARATION below.
 
   WIRING
     MPU-6050 (GY-521)        ESP-01S
       VCC -> 5V                VCC   -> 3.3V (separate supply, see above)
-      GND -> GND               GND   -> GND (common with the Uno)
+      GND -> GND               GND   -> GND (common with the board)
       SCL -> A5                CH_PD -> 3.3V (enable; without it, nothing works)
       SDA -> A4                RST   -> not connected
-                               TX    -> Uno pin 2   (3.3V out, safe for the Uno)
-                               RX    <- Uno pin 3 THROUGH a level shifter
+                               TX    -> board pin 2  (3.3V out, safe for a 5V in)
+                               RX    <- board pin 3 THROUGH a level shifter
                                         (or divider: 1k in series + 2k to GND)
 
   PREPARATION (once per module, before using this sketch)
-    Talk to the ESP-01 at its factory baud with a USB-TTL adapter (or the Uno
-    running a passthrough sketch) and set it to 9600 permanently:
+    Talk to the ESP-01 at its factory baud with a USB-TTL adapter (or the
+    board running a passthrough sketch) and set it to 9600 permanently:
         AT                      -> OK          (module alive)
         AT+GMR                  -> firmware version
         AT+UART_DEF=9600,8,1,0,0  -> OK        (persists across reboots)
     From then on it answers at 9600 and this sketch can drive it.
 
-  BUILD
+  BUILD  (pick the FQBN for the board you actually have)
     cp secrets.example.h secrets.h        # then edit secrets.h
-    arduino-cli compile --fqbn arduino:avr:uno .
-    arduino-cli upload -p /dev/cu.usbmodem11201 --fqbn arduino:avr:uno .
+    arduino-cli compile --fqbn arduino:avr:nano .     # or arduino:avr:uno
+    arduino-cli upload -p $PORT --fqbn arduino:avr:nano .
+    # Nano: $PORT is /dev/cu.wchusbserial* or /dev/cu.usbserial-*
+    #       (ls /dev/cu.*), NOT a usbmodem name. If the upload fails with
+    #       "not in sync", the clone has the old bootloader: use
+    #       arduino:avr:nano:cpu=atmega328old.
+    # Uno:  $PORT is /dev/cu.usbmodem* (native USB).
 
   DEBUG
     Open the USB serial monitor at 115200: the sketch prints every AT
@@ -57,8 +72,8 @@
 #include "secrets.h"   // WIFI_SSID, WIFI_PASS, DEST_IP, DEST_PORT, DEVICE_ID
 
 // ---- ESP-01 link ----
-const uint8_t ESP_RX_PIN = 2;   // Uno pin 2  <- ESP-01 TX
-const uint8_t ESP_TX_PIN = 3;   // Uno pin 3  -> ESP-01 RX (VIA LEVEL SHIFTER)
+const uint8_t ESP_RX_PIN = 2;   // Nano pin 2  <- ESP-01 TX
+const uint8_t ESP_TX_PIN = 3;   // Nano pin 3  -> ESP-01 RX (VIA LEVEL SHIFTER)
 const long ESP_BAUD = 9600;     // set with AT+UART_DEF, see PREPARATION
 SoftwareSerial esp(ESP_RX_PIN, ESP_TX_PIN);
 
@@ -165,13 +180,13 @@ void setup() {
   Serial.begin(DEBUG_BAUD);
   esp.begin(ESP_BAUD);
   delay(300);
-  Serial.println(F("\n[uno] MPU-6050 -> ESP-01 -> UDP bridge"));
+  Serial.println(F("\n[bridge] MPU-6050 -> ESP-01 -> UDP"));
   setupMpu();
   while (!espConnect()) {
     Serial.println(F("[esp] Retrying in 5 s..."));
     delay(5000);
   }
-  Serial.print(F("[uno] Streaming '"));
+  Serial.print(F("[udp] Streaming '"));
   Serial.print(DEVICE_ID);
   Serial.print(F("' to "));
   Serial.print(DEST_IP);

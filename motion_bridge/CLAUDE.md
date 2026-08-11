@@ -29,14 +29,23 @@ WitMotion WT901WIFI). Same conventions, deliberately separate code.
   `docs/CONTEXT.md` for why. Do not refactor them into a shared package.
 
 ## Current status
-- `wired/` — works up to the raw CSV, validated against real hardware.
-  Never yet driven an object inside Blender.
+- `wired/` — works up to the raw CSV, validated against real hardware, but
+  **on the old Uno**; the board in the enclosure is an **Arduino Nano**.
+  Same ATmega328P, so the sketch is unchanged — only the FQBN
+  (`arduino:avr:nano`) and the port name differ, and neither has been run
+  yet. Never yet driven an object inside Blender.
 - `wifi/` — receiver handles both frame profiles, multi-device routing and
   pose calibration; validated in software (see `docs/CONTEXT.md`). No WiFi
   hardware has been connected yet.
 - Firmware written but **never flashed**: `wifi/firmware/mpu_wifi_esp32/`
-  and `wifi/firmware/mpu_wifi_uno_esp01/`. Both compile-untested — there is
-  no ESP core installed on the dev machine yet.
+  and `wifi/firmware/mpu_wifi_avr_esp01/`. The AVR one **compiles**
+  (`arduino:avr:nano`, 38% flash / 35% RAM) — it is an AVR sketch, the
+  ESP-01 only hangs off it over SoftwareSerial. The ESP32 one is still
+  compile-untested: no ESP core installed on the dev machine.
+- **`mpu_wifi_avr_esp01/` is named after the architecture, not the board.**
+  It is board-agnostic 328P code: Nano by default, Uno with a different
+  FQBN. Do not fork it per board — the difference is a build flag, not
+  code.
 
 ## Known uncertainties (resolve with hardware in hand)
 1. **The WT901WIFI's real CSV layout.** `IDX_ANGLE_X/Y/Z=7,8,9` and
@@ -45,7 +54,7 @@ WitMotion WT901WIFI). Same conventions, deliberately separate code.
 2. **Axis frames.** Every sensor's mapping to Blender depends on how it
    ends up mounted. Nothing here is validated against a real mounting yet;
    `wifi/`'s `AXIS_MAP` is identity precisely because it is unknown.
-3. **The Uno + ESP-01 rate.** ~20 Hz is an estimate from the AT round trip
+3. **The Nano + ESP-01 rate.** ~20 Hz is an estimate from the AT round trip
    at 9600 baud. Measure it with `read_udp.py` before designing around it.
 
 ## Task order
@@ -62,9 +71,12 @@ WitMotion WT901WIFI). Same conventions, deliberately separate code.
    suit and the real remaining work.
 
 ### wired/
-1. Run the bridge inside Blender (never done yet).
-2. Calibrate `AXIS_MAP` for the actual mounting.
-3. Tune `ALPHA_ROLL_PITCH` if it looks jittery (lower) or sluggish (raise).
+1. Find the Nano's port (`ls /dev/cu.*`), flash with `arduino:avr:nano`,
+   confirm the CSV with `read_serial.py`, then put the port in
+   `blender/config.env` — it currently holds a `CHANGE_ME` placeholder.
+2. Run the bridge inside Blender (never done yet).
+3. Calibrate `AXIS_MAP` for the actual mounting.
+4. Tune `ALPHA_ROLL_PITCH` if it looks jittery (lower) or sluggish (raise).
 
 ## Testing without hardware
 `wifi/tools/fake_sensor.py` emits UDP frames in either profile, physically
