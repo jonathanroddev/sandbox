@@ -162,6 +162,3 @@ cython_debug/
 local.py
 *~
 pytest-cache-files-dvdpibc0
-# Arduino/ESP per-board configuration (WiFi credentials, target IP,
-# device id). Copy secrets.example.h to secrets.h and edit it there.
-secrets.h
